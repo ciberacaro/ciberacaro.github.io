@@ -32,6 +32,8 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - Posts / writeups / categories / tags / archives: **English only** (international reach).
   - Static "identity" pages (About, etc.): **bilingual EN + PT-PT**, as separate `_tabs/` files. Convention: English uses the standard English name (`about.md` → `/about/`), Portuguese uses the Portuguese equivalent (`sobre.md` → `/sobre/`) and links back to the English version at the top via a `prompt-info` callout.
   - Repo files (README, CLAUDE.md, commit messages): English.
+  - **CLI tools in `tools/`** with non-trivial user-facing output (reports, multi-line text): support a `--lang {en,pt}` flag, EN default. Reference implementation: `tools/check_headers.py` — labels/notes/risk-fix strings live in `LABELS` / `NOTES` / `HEADER_RISK_INFO` dicts keyed by language; `--lang` affects both human and JSON output. Skip the bilingual treatment for tools whose output is trivial (e.g. `tools/new_writeup.py` just prints `created: <path>`).
+  - In Portuguese strings, keep security jargon (XSS, CSP, HSTS, clickjacking, payload, port scan, etc.) in English — universal in the community. Use PT-PT, not BR-PT: "ficheiro" not "arquivo", "câmara" not "câmera", "descontinuado" not "obsoleto".
 - **Avatar:** Placeholder for now; deferred decision.
 - **Visual theme variant:** Not yet chosen — to be picked from Chirpy variants when content is in place.
 - **Posts location:** `_posts/` — Jekyll convention `YYYY-MM-DD-title.md`.
