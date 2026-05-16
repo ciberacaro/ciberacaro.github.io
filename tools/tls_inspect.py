@@ -161,17 +161,33 @@ def fetch_cert(host: str, port: int, timeout: float = 10.0) -> tuple[dict, str, 
 
 
 def _parse_der(der: bytes) -> dict:
-    """Convert DER to PEM and parse with ssl's internal cert decoder."""
+    """Convert DER to PEM and parse with ssl's internal cert decoder.
+
+    Caveat: ssl._ssl._test_decode_cert is an internal/private API
+    (leading underscore on the module). It's the only way to get a
+    parsed cert dict in pure stdlib without `cryptography`. If a future
+    Python release removes it, this function will need to fall back to
+    parsing DER manually or shelling out to `openssl x509`.
+    """
     import tempfile
 
     pem = ssl.DER_cert_to_PEM_cert(der)
-    with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
-        f.write(pem)
-        path = f.name
+    fd_path = None
     try:
-        return ssl._ssl._test_decode_cert(path)
+        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
+            f.write(pem)
+            fd_path = f.name
+        try:
+            return ssl._ssl._test_decode_cert(fd_path)
+        except AttributeError as e:
+            raise RuntimeError(
+                "ssl._ssl._test_decode_cert is unavailable in this Python build — "
+                "cert parsing requires either upgrading to a stdlib version that "
+                "exposes it, or adding 'cryptography' as a dependency."
+            ) from e
     finally:
-        os.unlink(path)
+        if fd_path and os.path.exists(fd_path):
+            os.unlink(fd_path)
 
 
 def _flatten_name(name_tuples) -> dict:
