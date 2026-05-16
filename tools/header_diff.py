@@ -239,14 +239,21 @@ def cmd_diff(args, lang: str) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Snapshot a URL's security headers and diff over time.")
-    parser.add_argument("--lang", choices=LANGS, default="en")
-    parser.add_argument("--json", action="store_true")
-    parser.add_argument("--timeout", type=float, default=10.0)
+    # Parent parser carries the flags shared by every subcommand so they can
+    # appear either before or after the subcommand name on the CLI.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--lang", choices=LANGS, default="en")
+    common.add_argument("--json", action="store_true")
+    common.add_argument("--timeout", type=float, default=10.0)
+
+    parser = argparse.ArgumentParser(
+        description="Snapshot a URL's security headers and diff over time.",
+        parents=[common],
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sp_snap = sub.add_parser("snapshot", help="Save current header state as a snapshot")
+    sp_snap = sub.add_parser("snapshot", help="Save current header state as a snapshot", parents=[common])
     sp_snap.add_argument("url")
-    sp_diff = sub.add_parser("diff", help="Diff current state against last snapshot")
+    sp_diff = sub.add_parser("diff", help="Diff current state against last snapshot", parents=[common])
     sp_diff.add_argument("url")
     args = parser.parse_args()
 
