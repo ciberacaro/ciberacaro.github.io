@@ -140,32 +140,38 @@ def parse_host_port(value: str) -> tuple[str, int]:
 
 
 def fetch_cert(host: str, port: int, timeout: float = 10.0) -> tuple[dict, str, str, bytes]:
-    """Return (cert_dict, tls_version, cipher_name, der_bytes)."""
+    """Return (cert_dict, tls_version, cipher_name, der_bytes).
+
+    Uses CERT_NONE so we can inspect even invalid/self-signed/expired certs.
+    Under CERT_NONE, getpeercert() returns an empty dict — we parse the DER
+    ourselves by writing it to a PEM file and using ssl._test_decode_cert.
+    """
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE  # We want to inspect even bad certs
+    ctx.verify_mode = ssl.CERT_NONE
     with socket.create_connection((host, port), timeout=timeout) as sock:
         with ctx.wrap_socket(sock, server_hostname=host) as ssock:
             cert_der = ssock.getpeercert(binary_form=True)
-            cert = ssock.getpeercert()
-            if not cert:
-                # CERT_NONE returned empty dict; do a second pass with parsing.
-                cert = _parse_cert_from_der(cert_der)
-            return cert, ssock.version(), ssock.cipher()[0] if ssock.cipher() else "", cert_der
+            tls_version = ssock.version()
+            cipher_name = ssock.cipher()[0] if ssock.cipher() else ""
+    if not cert_der:
+        return {}, tls_version, cipher_name, b""
+    cert = _parse_der(cert_der)
+    return cert, tls_version, cipher_name, cert_der
 
 
-def _parse_cert_from_der(der: bytes) -> dict:
-    """Minimal fallback when getpeercert() returns empty under CERT_NONE."""
+def _parse_der(der: bytes) -> dict:
+    """Convert DER to PEM and parse with ssl's internal cert decoder."""
     import tempfile
 
-    with tempfile.NamedTemporaryFile(suffix=".der", delete=False) as f:
-        f.write(der)
+    pem = ssl.DER_cert_to_PEM_cert(der)
+    with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as f:
+        f.write(pem)
         path = f.name
     try:
-        cert = ssl._ssl._test_decode_cert(path)
+        return ssl._ssl._test_decode_cert(path)
     finally:
         os.unlink(path)
-    return cert
 
 
 def _flatten_name(name_tuples) -> dict:
