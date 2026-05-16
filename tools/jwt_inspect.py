@@ -68,11 +68,17 @@ ISSUE_TEXT = {
         "pt": ("alg: 'none' — assinatura não verificada",
                "Muitas bibliotecas JWT aceitam isto por defeito. Rejeita qualquer token com alg=none no servidor."),
     },
-    "alg_weak": {
-        "en": ("alg: '{}' — weak / deprecated",
-               "Use HS256 with a strong secret, or move to RS256/ES256."),
-        "pt": ("alg: '{}' — fraco / descontinuado",
-               "Usa HS256 com um secret forte, ou migra para RS256/ES256."),
+    "alg_unknown": {
+        "en": ("alg: '{}' — not a recognised JWT algorithm",
+               "Server should reject any alg outside the explicit allowlist. Unknown alg is a strong sign of a manipulated header."),
+        "pt": ("alg: '{}' — não é um algoritmo JWT reconhecido",
+               "O servidor deve rejeitar qualquer alg fora da allowlist explícita. Alg desconhecido é forte sinal de header manipulado."),
+    },
+    "nbf_future": {
+        "en": ("Token not yet valid: nbf is in the future ({})",
+               "Server-side validation should reject this. If accepted, validation is broken."),
+        "pt": ("Token ainda não é válido: nbf está no futuro (em {})",
+               "A validação no servidor deve rejeitar isto. Se for aceite, a validação está partida."),
     },
     "no_exp": {
         "en": ("Token has no expiry (`exp`) claim",
@@ -112,7 +118,15 @@ ISSUE_TEXT = {
     },
 }
 
-WEAK_ALGS = {"HS1", "HS128", "SHA1", "MD5"}
+# Canonical JWT algorithms per RFC 7518 + common extensions.
+KNOWN_ALGS = {
+    "HS256", "HS384", "HS512",
+    "RS256", "RS384", "RS512",
+    "ES256", "ES256K", "ES384", "ES512",
+    "PS256", "PS384", "PS512",
+    "EDDSA",
+    "NONE",
+}
 
 
 @dataclass
@@ -170,13 +184,14 @@ def evaluate(info: JWTInfo, lang: str) -> list[Issue]:
     h = info.header
     p = info.payload
 
-    alg = (h.get("alg") or "").upper()
+    alg_raw = h.get("alg") or ""
+    alg = alg_raw.upper()
     if alg in ("NONE", ""):
         t = ISSUE_TEXT["alg_none"][lang]
         issues.append(Issue("alg_none", t[0], t[0], t[1]))
-    elif alg in WEAK_ALGS:
-        t = ISSUE_TEXT["alg_weak"][lang]
-        issues.append(Issue("alg_weak", t[0].format(alg), t[0].format(alg), t[1]))
+    elif alg not in KNOWN_ALGS:
+        t = ISSUE_TEXT["alg_unknown"][lang]
+        issues.append(Issue("alg_unknown", t[0].format(alg_raw), t[0].format(alg_raw), t[1]))
 
     kid = h.get("kid")
     if isinstance(kid, str) and ("/" in kid or ".." in kid):
@@ -206,6 +221,12 @@ def evaluate(info: JWTInfo, lang: str) -> list[Issue]:
     if "aud" not in p:
         t = ISSUE_TEXT["no_aud"][lang]
         issues.append(Issue("no_aud", t[0], t[0], t[1]))
+
+    nbf = p.get("nbf")
+    if isinstance(nbf, (int, float)) and nbf > now:
+        delta = fmt_timedelta(int(nbf) - now, lang)
+        t = ISSUE_TEXT["nbf_future"][lang]
+        issues.append(Issue("nbf_future", t[0].format(delta), t[0].format(delta), t[1]))
 
     return issues
 
