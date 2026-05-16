@@ -107,6 +107,15 @@ NOTES = {
         "server_info_no_version": "Reveals server software (no version)",
         "info_disclosure": "Reveals stack/version — consider removing",
         "wildcard_source": "wildcard '*' source",
+        "coop_missing": "No COOP; cross-origin windows share browsing context (Spectre / cross-window attacks)",
+        "coop_ok": "Browsing context isolated from cross-origin windows",
+        "coop_weak": "COOP set but with permissive value",
+        "coep_missing": "No COEP; embedding cross-origin resources without explicit consent",
+        "coep_ok": "Embedder requires cross-origin resources to opt-in",
+        "coep_weak": "COEP set but with unusual value",
+        "corp_missing": "No CORP; resources can be embedded by any origin",
+        "corp_ok": "Resource embedding restricted to same-origin or same-site",
+        "corp_weak": "CORP set but allows cross-origin embedding",
     },
     "pt": {
         "hsts_missing": "HTTPS não imposto; permite downgrade attacks",
@@ -135,6 +144,15 @@ NOTES = {
         "server_info_no_version": "Revela software do servidor (sem versão)",
         "info_disclosure": "Revela stack/versão — considera remover",
         "wildcard_source": "origem com wildcard '*'",
+        "coop_missing": "Sem COOP; janelas cross-origin partilham contexto de browsing (Spectre / ataques cross-window)",
+        "coop_ok": "Contexto de browsing isolado de janelas cross-origin",
+        "coop_weak": "COOP definido mas com valor permissivo",
+        "coep_missing": "Sem COEP; recursos cross-origin podem ser embebidos sem consentimento explícito",
+        "coep_ok": "Embedder exige opt-in dos recursos cross-origin",
+        "coep_weak": "COEP definido mas com valor invulgar",
+        "corp_missing": "Sem CORP; recursos podem ser embebidos por qualquer origem",
+        "corp_ok": "Embedding de recursos restrito a same-origin ou same-site",
+        "corp_weak": "CORP definido mas permite embedding cross-origin",
     },
 }
 
@@ -206,6 +224,29 @@ HEADER_RISK_INFO = {
             "risk": "Reveals exact ASP.NET MVC version — same as above.",
             "fix": "Remove via MvcHandler.DisableMvcResponseHeader = true.",
         },
+        "Cross-Origin-Opener-Policy": {
+            "risk": (
+                "Without COOP, a window opened by an attacker (or one that opens you) "
+                "shares a browsing context group. This enables Spectre-class side-channel "
+                "attacks and cross-window reference probing."
+            ),
+            "fix": "Cross-Origin-Opener-Policy: same-origin",
+        },
+        "Cross-Origin-Embedder-Policy": {
+            "risk": (
+                "Without COEP, the page can embed cross-origin resources that haven't "
+                "opted in (no CORP). Combined with COOP, COEP enables crossOriginIsolated "
+                "mode (required for SharedArrayBuffer and high-precision timers)."
+            ),
+            "fix": "Cross-Origin-Embedder-Policy: require-corp",
+        },
+        "Cross-Origin-Resource-Policy": {
+            "risk": (
+                "Without CORP, any origin can embed this resource via <img>, <script>, "
+                "<iframe>, etc. — useful for tracking, side-channels, or hotlinking attacks."
+            ),
+            "fix": "Cross-Origin-Resource-Policy: same-origin  (or same-site)",
+        },
     },
     "pt": {
         "Strict-Transport-Security": {
@@ -275,6 +316,29 @@ HEADER_RISK_INFO = {
         "X-AspNetMvc-Version": {
             "risk": "Revela a versão exata do ASP.NET MVC — o mesmo problema do anterior.",
             "fix": "Remove com MvcHandler.DisableMvcResponseHeader = true.",
+        },
+        "Cross-Origin-Opener-Policy": {
+            "risk": (
+                "Sem COOP, uma janela aberta por um atacante (ou uma que te abre) partilha "
+                "browsing context group. Permite ataques side-channel da família Spectre e "
+                "sondagem por referência cross-window."
+            ),
+            "fix": "Cross-Origin-Opener-Policy: same-origin",
+        },
+        "Cross-Origin-Embedder-Policy": {
+            "risk": (
+                "Sem COEP, a página pode embeber recursos cross-origin que não fizeram opt-in "
+                "(sem CORP). Combinado com COOP, COEP permite o modo crossOriginIsolated "
+                "(necessário para SharedArrayBuffer e timers de alta precisão)."
+            ),
+            "fix": "Cross-Origin-Embedder-Policy: require-corp",
+        },
+        "Cross-Origin-Resource-Policy": {
+            "risk": (
+                "Sem CORP, qualquer origem pode embeber este recurso via <img>, <script>, "
+                "<iframe>, etc. — útil para tracking, side-channels ou ataques de hotlinking."
+            ),
+            "fix": "Cross-Origin-Resource-Policy: same-origin  (ou same-site)",
         },
     },
 }
@@ -427,6 +491,39 @@ def check_permissions_policy(headers: dict, lang: str) -> Finding:
     return Finding(display, OK, raw, N["perm_ok"])
 
 
+def check_coop(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
+    display = "Cross-Origin-Opener-Policy"
+    raw = headers.get("cross-origin-opener-policy")
+    if not raw:
+        return Finding(display, MISSING, None, N["coop_missing"])
+    if raw.strip().lower() in ("same-origin", "same-origin-allow-popups"):
+        return Finding(display, OK, raw, N["coop_ok"])
+    return Finding(display, WEAK, raw, N["coop_weak"])
+
+
+def check_coep(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
+    display = "Cross-Origin-Embedder-Policy"
+    raw = headers.get("cross-origin-embedder-policy")
+    if not raw:
+        return Finding(display, MISSING, None, N["coep_missing"])
+    if raw.strip().lower() in ("require-corp", "credentialless"):
+        return Finding(display, OK, raw, N["coep_ok"])
+    return Finding(display, WEAK, raw, N["coep_weak"])
+
+
+def check_corp(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
+    display = "Cross-Origin-Resource-Policy"
+    raw = headers.get("cross-origin-resource-policy")
+    if not raw:
+        return Finding(display, MISSING, None, N["corp_missing"])
+    if raw.strip().lower() in ("same-origin", "same-site"):
+        return Finding(display, OK, raw, N["corp_ok"])
+    return Finding(display, WEAK, raw, N["corp_weak"])
+
+
 def check_info_disclosure(headers: dict, lang: str) -> list[Finding]:
     N = NOTES[lang]
     findings = []
@@ -557,6 +654,9 @@ def main() -> int:
         check_x_content_type_options(headers, args.lang),
         check_referrer_policy(headers, args.lang),
         check_permissions_policy(headers, args.lang),
+        check_coop(headers, args.lang),
+        check_coep(headers, args.lang),
+        check_corp(headers, args.lang),
     ]
     findings.extend(check_info_disclosure(headers, args.lang))
 
