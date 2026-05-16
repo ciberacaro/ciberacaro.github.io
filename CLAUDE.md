@@ -1,0 +1,108 @@
+# CLAUDE.md
+
+Context for any Claude (Code, web, or otherwise) working on this repository.
+
+## About this project
+
+This repo is the personal cybersecurity portfolio of **Luís Soares** (GitHub handle: `ciberacaro`), published at <https://ciberacaro.github.io>. It is a Jekyll site using the **Chirpy** theme, deployed automatically via GitHub Actions to GitHub Pages.
+
+The portfolio's purpose is to support Luís's career transition into cybersecurity — specifically **penetration testing / red team / ethical hacking** — and to land a first security job. Broader identity goal: be an *ethical hacker* (encompasses pentesting, bug bounty, security research, CTFs, community involvement).
+
+## About the user (Luís)
+
+- **Career stage:** Entry-level, transitioning into cybersecurity from scratch (no prior security job).
+- **Background skills:** Basic programming, Linux/CLI, networking — self-describes as "just starting, knowledge isn't deep."
+- **Practice platforms:** Has a TryHackMe account with some rooms done. Will move to HackTheBox later in the roadmap.
+- **Time available:** 10-20 hours/week.
+- **Spoken language:** European Portuguese — chat with Luís in Portuguese. All portfolio content / commits / repo files are in **English** (for international reach).
+- **Location:** Portugal.
+- **Identity model:** Handle (`ciberacaro`) in usernames; real name (Luís Soares) in GitHub profile "Name" field, footers, bios, LinkedIn — so recruiters can bridge the two.
+
+## Site / repo conventions
+
+- **Stack:** Jekyll + Chirpy theme. Source: <https://github.com/cotes2020/chirpy-starter>
+- **Deploy:** GitHub Actions builds and deploys on push to `main`. See `.github/workflows/`.
+- **Branding (locked):**
+  - Title: `Luís Soares · ciberacaro`
+  - Tagline: `Notes from an aspiring penetration tester`
+  - URL: `https://ciberacaro.github.io`
+  - Timezone: `Europe/Lisbon`
+  - Language: English
+- **Avatar:** Placeholder for now; deferred decision.
+- **Visual theme variant:** Not yet chosen — to be picked from Chirpy variants when content is in place.
+- **Posts location:** `_posts/` — Jekyll convention `YYYY-MM-DD-title.md`.
+- **Custom tabs:** `_tabs/` (e.g., About page).
+- **Categories planned:** Web, Active Directory, Linux, Windows, Crypto, Forensics, Notes/Cheatsheets, Tools.
+
+## 6-month roadmap
+
+| Month | Learning focus | Portfolio output |
+|-------|----------------|------------------|
+| 1 | Linux, networking, TryHackMe Pre-Security / Jr Pentester paths | Site live, 3-5 first writeups |
+| 2 | Web hacking — PortSwigger Web Security Academy + THM web rooms | 5+ web writeups, first cheat-sheet repo |
+| 3 | Active Directory + Windows | AD writeups, first published Python tool |
+| 4 | HackTheBox Starting Point + Tier 1 | 5-10 HTB box writeups |
+| 5 | eJPT certification (INE/eLearnSecurity) | eJPT cert on profile, more technical writeups |
+| 6 | HTB Easy boxes + start applying | Polished portfolio, active HTB profile, applications begin |
+
+**6-month target:** eJPT + 25-30 well-written writeups + 1-2 own tools + active HackTheBox profile.
+
+**Longer horizon:**
+- Bug bounty on HackerOne / Bugcrowd — real-world impact, beats CTF writeups.
+- Portuguese community presence: Confraria de Segurança da Informação, BSides Lisbon.
+- Responsible disclosure mindset if real vulnerabilities found in the wild.
+
+## Writeup quality principles
+
+1. **Well-written writeups > many bad writeups.** Quality of reasoning matters more than quantity.
+2. **Show the path, not just the destination.** "I tried X, it failed because Y, so I tried Z" > "I ran this command and got root."
+3. **Consistency > intensity.** Weekly commits beat 50 writeups in a month then 6 months of silence.
+
+## Inspirations / reference portfolios
+
+- <https://0xdf.gitlab.io> — gold standard for HTB writeups
+- <https://ippsec.rocks> — HTB legend
+- <https://tib3rius.com> — clean, professional
+- <https://www.johnhammond.org> — personal-brand style
+- <https://xct.github.io> — beginner-to-pro trajectory
+- <https://m0chan.github.io> — GitHub Pages + Jekyll, good structure
+
+## Current build state (last updated 2026-05-16)
+
+- ✅ Repo forked from `cotes2020/chirpy-starter`
+- ✅ GitHub Pages enabled (source: GitHub Actions)
+- ✅ Site live at <https://ciberacaro.github.io>
+- ✅ `_config.yml` cleaned: no remaining template placeholders
+- ✅ Local dev: clone at `~/Projects/ciberacaro.github.io` on Luís's Mac; `gh` CLI installed at `~/.local/bin/gh`; git configured with name `Luís Soares` and GitHub noreply email
+- ⏳ **Open work items:**
+  - About page (`_tabs/about.md`) — critical before first writeup
+  - First writeup template / first published post
+  - Avatar image
+  - LinkedIn URL once Luís creates a profile
+  - Audit existing public repos on `ciberacaro` account before promoting site publicly
+  - Polish GitHub profile (Name field still shows "ciberacaro" instead of "Luís Soares"; bio empty)
+
+## How to help Luís
+
+- **Chat language:** Portuguese (European). All portfolio content stays in English.
+- **Tone:** Direct, concrete. Beginner-friendly — don't assume security background. Explain trade-offs, not just answers.
+- **Be honest about market reality.** Pentesting junior roles are competitive in Portugal — SOC analyst is the more common entry point. Don't pretend otherwise.
+- **Reversibility:** Confirm before destructive actions (force pushes, deleting repos, large refactors).
+- **Verify before claiming success.** Don't assume the live site reflects changes — fetch and check. Note: GitHub CDN caching can lag the build by 1-2 min.
+
+## Useful commands
+
+```bash
+# Make sure gh CLI is on PATH (Luís's Mac uses ~/.local/bin/gh)
+export PATH="$HOME/.local/bin:$PATH"
+
+# From repo root
+gh run list --limit 5            # check recent Actions builds
+gh run watch                     # watch the latest run live
+
+# Local validation before push
+ruby -ryaml -e 'YAML.load_file("_config.yml"); puts "Valid YAML"'
+
+# Site is at:
+# https://ciberacaro.github.io
+```
