@@ -82,8 +82,9 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ `.claude/settings.json` configured:
   - `defaultMode: "bypassPermissions"` — Claude auto-accepts Bash/edits in this project (Luís opted in). **Be extra careful with destructive operations** — there is no prompt to catch a mistake. Confirm explicitly in chat before any `rm -rf`, `git push --force`, branch deletion, or anything irreversible.
   - `allow: ["Bash(gh run watch *)"]` — read-only allowlist (mostly redundant given bypassPermissions, kept for clarity).
+- ✅ Writeup skeleton generator at `tools/new_writeup.py` (Python 3.8+ stdlib). Generates Chirpy-compatible posts in `_posts/` with standard pentest sections. See `tools/README.md` for usage.
 - ⏳ **Open work items:**
-  - First writeup template / first published post
+  - First actual writeup (use the generator + fill it in after Luís has CTF content)
   - Avatar image
   - LinkedIn URL once Luís creates a profile
   - Audit existing public repos on `ciberacaro` account before promoting site publicly
