@@ -79,7 +79,9 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ `_config.yml` cleaned: no remaining template placeholders
 - ✅ Local dev: clone at `~/Projects/ciberacaro.github.io` on Luís's Mac; `gh` CLI installed at `~/.local/bin/gh`; git configured with name `Luís Soares` and GitHub noreply email
 - ✅ Preliminary About pages published — `/about/` (EN) and `/sobre/` (PT-PT). **Luís asked to defer iteration on both** — do not rewrite unless he reopens.
-- ✅ `.claude/settings.json` with read-only allowlist (`Bash(gh run watch *)`) — active when Claude Code is started from inside this repo.
+- ✅ `.claude/settings.json` configured:
+  - `defaultMode: "bypassPermissions"` — Claude auto-accepts Bash/edits in this project (Luís opted in). **Be extra careful with destructive operations** — there is no prompt to catch a mistake. Confirm explicitly in chat before any `rm -rf`, `git push --force`, branch deletion, or anything irreversible.
+  - `allow: ["Bash(gh run watch *)"]` — read-only allowlist (mostly redundant given bypassPermissions, kept for clarity).
 - ⏳ **Open work items:**
   - First writeup template / first published post
   - Avatar image
