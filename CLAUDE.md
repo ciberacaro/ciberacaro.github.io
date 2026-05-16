@@ -27,11 +27,15 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - Tagline: `Notes from an aspiring penetration tester`
   - URL: `https://ciberacaro.github.io`
   - Timezone: `Europe/Lisbon`
-  - Language: English
+  - Language: Bilingual (see below)
+- **Language policy:**
+  - Posts / writeups / categories / tags / archives: **English only** (international reach).
+  - Static "identity" pages (About, etc.): **bilingual EN + PT-PT**, as separate `_tabs/` files. Convention: English uses the standard English name (`about.md` → `/about/`), Portuguese uses the Portuguese equivalent (`sobre.md` → `/sobre/`) and links back to the English version at the top via a `prompt-info` callout.
+  - Repo files (README, CLAUDE.md, commit messages): English.
 - **Avatar:** Placeholder for now; deferred decision.
 - **Visual theme variant:** Not yet chosen — to be picked from Chirpy variants when content is in place.
 - **Posts location:** `_posts/` — Jekyll convention `YYYY-MM-DD-title.md`.
-- **Custom tabs:** `_tabs/` (e.g., About page).
+- **Custom tabs:** `_tabs/` (e.g., About + Sobre).
 - **Categories planned:** Web, Active Directory, Linux, Windows, Crypto, Forensics, Notes/Cheatsheets, Tools.
 
 ## 6-month roadmap
@@ -74,13 +78,15 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ Site live at <https://ciberacaro.github.io>
 - ✅ `_config.yml` cleaned: no remaining template placeholders
 - ✅ Local dev: clone at `~/Projects/ciberacaro.github.io` on Luís's Mac; `gh` CLI installed at `~/.local/bin/gh`; git configured with name `Luís Soares` and GitHub noreply email
+- ✅ Preliminary About pages published — `/about/` (EN) and `/sobre/` (PT-PT). **Luís asked to defer iteration on both** — do not rewrite unless he reopens.
+- ✅ `.claude/settings.json` with read-only allowlist (`Bash(gh run watch *)`) — active when Claude Code is started from inside this repo.
 - ⏳ **Open work items:**
-  - About page (`_tabs/about.md`) — critical before first writeup
   - First writeup template / first published post
   - Avatar image
   - LinkedIn URL once Luís creates a profile
   - Audit existing public repos on `ciberacaro` account before promoting site publicly
   - Polish GitHub profile (Name field still shows "ciberacaro" instead of "Luís Soares"; bio empty)
+  - Consider reciprocal link from EN About → /sobre/ when iteration is reopened
 
 ## How to help Luís
 
