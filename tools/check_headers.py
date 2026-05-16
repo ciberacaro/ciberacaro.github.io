@@ -16,6 +16,7 @@ import re
 import socket
 import ssl
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -39,6 +40,77 @@ ANSI = {
 }
 
 SYMBOL = {OK: "✓", WEAK: "!", MISSING: "✗", INFO: "i"}
+
+# Risk and fix guidance per header — used by the issue-report section
+# and added to JSON output. Keyed by the display name in `Finding.header`.
+HEADER_RISK_INFO = {
+    "Strict-Transport-Security": {
+        "risk": (
+            "Without HSTS, browsers may connect over plain HTTP at least once. "
+            "An attacker on the network can intercept that request (SSL stripping) "
+            "and serve a malicious unencrypted version of the page."
+        ),
+        "fix": "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+    },
+    "Content-Security-Policy": {
+        "risk": (
+            "XSS (Cross-Site Scripting) impact is unconstrained. Any injected "
+            "<script> tag or inline JS executes with full page permissions — "
+            "session theft, account takeover, defacement."
+        ),
+        "fix": "Start with: default-src 'self'; then refine per resource type.",
+    },
+    "X-Frame-Options": {
+        "risk": (
+            "Clickjacking. The page can be embedded in an invisible iframe on a "
+            "malicious site and users tricked into clicking authenticated actions."
+        ),
+        "fix": "X-Frame-Options: DENY  (or use CSP: frame-ancestors 'none')",
+    },
+    "X-Content-Type-Options": {
+        "risk": (
+            "MIME-sniffing. Browsers may interpret uploaded or served files as a "
+            "different content type than declared, enabling XSS via file uploads "
+            "(e.g. a .txt file being executed as JavaScript)."
+        ),
+        "fix": "X-Content-Type-Options: nosniff",
+    },
+    "Referrer-Policy": {
+        "risk": (
+            "Full URLs (paths, query strings) are sent in the Referer header to "
+            "every cross-origin resource. Can leak session tokens in URLs, "
+            "internal page structure, or sensitive identifiers."
+        ),
+        "fix": "Referrer-Policy: strict-origin-when-cross-origin",
+    },
+    "Permissions-Policy": {
+        "risk": (
+            "Embedded iframes and compromised scripts can request access to "
+            "camera, microphone, geolocation, USB, etc. without your origin "
+            "restricting which features may be used."
+        ),
+        "fix": "Permissions-Policy: camera=(), microphone=(), geolocation=()",
+    },
+    "Server": {
+        "risk": (
+            "Reveals server software (and sometimes version) — helps attackers "
+            "narrow down which exploits to try first."
+        ),
+        "fix": "Remove the header, or strip the version (e.g. Server: nginx).",
+    },
+    "X-Powered-By": {
+        "risk": "Reveals application stack and/or framework version — unnecessary disclosure.",
+        "fix": "Remove the header from your server / framework config.",
+    },
+    "X-AspNet-Version": {
+        "risk": "Reveals exact .NET framework version — helps target known CVEs.",
+        "fix": "In web.config: <httpRuntime enableVersionHeader=\"false\" />",
+    },
+    "X-AspNetMvc-Version": {
+        "risk": "Reveals exact ASP.NET MVC version — same as above.",
+        "fix": "Remove via MvcHandler.DisableMvcResponseHeader = true.",
+    },
+}
 
 
 @dataclass
@@ -231,6 +303,36 @@ def print_human_report(url: str, status: int, findings: list[Finding], use_color
     relevant = sum(1 for f in findings if f.status != INFO)
     print(f"\n{bold('Score:')} {ok_count}/{relevant} headers OK")
 
+    print_issue_report(findings, use_color)
+
+
+def print_issue_report(findings: list[Finding], use_color: bool) -> None:
+    """Print a per-issue summary with concrete risk and recommended fix."""
+    bold = lambda s: f"{ANSI['bold']}{s}{ANSI['reset']}" if use_color else s
+    dim = lambda s: f"{ANSI['dim']}{s}{ANSI['reset']}" if use_color else s
+
+    issues = [f for f in findings if f.status in (MISSING, WEAK)]
+    if not issues:
+        print(f"\n{colorize('No issues — every checked header is in good shape.', OK, use_color)}")
+        return
+
+    print(f"\n{bold(f'Issues found ({len(issues)}):')}")
+    for f in issues:
+        info = HEADER_RISK_INFO.get(f.header, {})
+        sym = colorize(SYMBOL[f.status], f.status, use_color)
+        status_label = colorize(f.status, f.status, use_color)
+        print(f"\n  {sym}  {bold(f.header)} [{status_label}]")
+        risk = info.get("risk")
+        if risk:
+            wrapped = textwrap.wrap(risk, width=72)
+            if wrapped:
+                print(f"     {dim('Risk:')} {wrapped[0]}")
+                for line in wrapped[1:]:
+                    print(f"           {line}")
+        fix = info.get("fix")
+        if fix:
+            print(f"     {dim('Fix: ')} {fix}")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -275,10 +377,19 @@ def main() -> int:
     findings.extend(check_info_disclosure(headers))
 
     if args.json:
+        findings_out = []
+        for f in findings:
+            entry = asdict(f)
+            if f.status in (MISSING, WEAK):
+                info = HEADER_RISK_INFO.get(f.header, {})
+                entry["risk"] = info.get("risk")
+                entry["fix"] = info.get("fix")
+            findings_out.append(entry)
         out = {
             "url": final_url,
             "status": status,
-            "findings": [asdict(f) for f in findings],
+            "findings": findings_out,
+            "issues_count": sum(1 for f in findings if f.status in (MISSING, WEAK)),
         }
         print(json.dumps(out, indent=2))
     else:
