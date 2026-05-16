@@ -3,6 +3,7 @@
 
 Examples:
     tools/check_headers.py https://example.com
+    tools/check_headers.py https://example.com --lang pt
     tools/check_headers.py https://example.com --no-color
     tools/check_headers.py https://example.com --json
 """
@@ -41,74 +42,240 @@ ANSI = {
 
 SYMBOL = {OK: "✓", WEAK: "!", MISSING: "✗", INFO: "i"}
 
-# Risk and fix guidance per header — used by the issue-report section
-# and added to JSON output. Keyed by the display name in `Finding.header`.
+LANGS = ("en", "pt")
+
+LABELS = {
+    "en": {
+        "url": "URL",
+        "status": "Status",
+        "security_headers": "Security headers",
+        "score": "Score",
+        "score_suffix": "headers OK",
+        "issues_found": "Issues found",
+        "no_issues": "No issues — every checked header is in good shape.",
+        "risk_label": "Risk:",
+        "fix_label": "Fix: ",
+        "err_scheme": "error: URL must start with http:// or https://",
+        "err_unreachable": "error: could not reach",
+        "err_timeout": "error: timeout after",
+        "got": "got",
+        "seconds": "s",
+    },
+    "pt": {
+        "url": "URL",
+        "status": "Estado",
+        "security_headers": "Headers de segurança",
+        "score": "Pontuação",
+        "score_suffix": "headers OK",
+        "issues_found": "Problemas encontrados",
+        "no_issues": "Sem problemas — todos os headers verificados estão em ordem.",
+        "risk_label": "Risco:",
+        "fix_label": "Correção: ",
+        "err_scheme": "erro: URL tem de começar por http:// ou https://",
+        "err_unreachable": "erro: não foi possível alcançar",
+        "err_timeout": "erro: timeout após",
+        "got": "recebido",
+        "seconds": "s",
+    },
+}
+
+NOTES = {
+    "en": {
+        "hsts_missing": "HTTPS not enforced; supports downgrade attacks",
+        "hsts_weak": "max-age={} is below 180 days (15552000)",
+        "hsts_ok": "HSTS enforced",
+        "csp_missing": "No CSP; XSS payloads are not restricted by the browser",
+        "csp_weak_directives": "Permissive directives: {}",
+        "csp_weak_report_only": "Report-Only mode — not enforced, only logged",
+        "csp_ok": "CSP present and reasonably strict",
+        "xfo_ok_covered": "Covered by CSP frame-ancestors",
+        "xfo_ok_backup": "Backed up by CSP frame-ancestors",
+        "xfo_missing": "Clickjacking risk",
+        "xfo_ok_restricted": "Iframes restricted",
+        "xfo_weak_unusual": "Unusual value: {}",
+        "xcto_missing": "MIME-sniffing not disabled; consider 'nosniff'",
+        "xcto_ok": "MIME sniffing disabled",
+        "xcto_weak": "Expected exactly 'nosniff'",
+        "ref_missing": "Default referrer behavior leaks paths to third parties",
+        "ref_ok": "Privacy-respecting policy",
+        "ref_weak_unsafe": "Unsafe — sends full URL cross-origin",
+        "ref_weak": "Weak policy",
+        "perm_missing": "No restriction on browser features (camera, geolocation, etc.)",
+        "perm_weak_feature": "Using deprecated Feature-Policy — migrate to Permissions-Policy",
+        "perm_ok": "Permissions policy set",
+        "server_weak_version": "Reveals server software/version",
+        "server_info_no_version": "Reveals server software (no version)",
+        "info_disclosure": "Reveals stack/version — consider removing",
+        "wildcard_source": "wildcard '*' source",
+    },
+    "pt": {
+        "hsts_missing": "HTTPS não imposto; permite downgrade attacks",
+        "hsts_weak": "max-age={} é inferior a 180 dias (15552000)",
+        "hsts_ok": "HSTS imposto",
+        "csp_missing": "Sem CSP; payloads de XSS não são restringidos pelo browser",
+        "csp_weak_directives": "Diretivas permissivas: {}",
+        "csp_weak_report_only": "Modo Report-Only — não imposto, apenas registado",
+        "csp_ok": "CSP presente e razoavelmente estrito",
+        "xfo_ok_covered": "Coberto pelo CSP frame-ancestors",
+        "xfo_ok_backup": "Reforçado pelo CSP frame-ancestors",
+        "xfo_missing": "Risco de clickjacking",
+        "xfo_ok_restricted": "Iframes restritos",
+        "xfo_weak_unusual": "Valor invulgar: {}",
+        "xcto_missing": "MIME-sniffing não desativado; considera 'nosniff'",
+        "xcto_ok": "MIME sniffing desativado",
+        "xcto_weak": "Esperado exatamente 'nosniff'",
+        "ref_missing": "Comportamento por defeito do referrer expõe paths a terceiros",
+        "ref_ok": "Política respeitadora da privacidade",
+        "ref_weak_unsafe": "Inseguro — envia URL completo cross-origin",
+        "ref_weak": "Política fraca",
+        "perm_missing": "Sem restrição de funcionalidades do browser (câmara, geolocalização, etc.)",
+        "perm_weak_feature": "Uso de Feature-Policy (descontinuado) — migra para Permissions-Policy",
+        "perm_ok": "Política de permissões definida",
+        "server_weak_version": "Revela software/versão do servidor",
+        "server_info_no_version": "Revela software do servidor (sem versão)",
+        "info_disclosure": "Revela stack/versão — considera remover",
+        "wildcard_source": "origem com wildcard '*'",
+    },
+}
+
 HEADER_RISK_INFO = {
-    "Strict-Transport-Security": {
-        "risk": (
-            "Without HSTS, browsers may connect over plain HTTP at least once. "
-            "An attacker on the network can intercept that request (SSL stripping) "
-            "and serve a malicious unencrypted version of the page."
-        ),
-        "fix": "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+    "en": {
+        "Strict-Transport-Security": {
+            "risk": (
+                "Without HSTS, browsers may connect over plain HTTP at least once. "
+                "An attacker on the network can intercept that request (SSL stripping) "
+                "and serve a malicious unencrypted version of the page."
+            ),
+            "fix": "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+        },
+        "Content-Security-Policy": {
+            "risk": (
+                "XSS (Cross-Site Scripting) impact is unconstrained. Any injected "
+                "<script> tag or inline JS executes with full page permissions — "
+                "session theft, account takeover, defacement."
+            ),
+            "fix": "Start with: default-src 'self'; then refine per resource type.",
+        },
+        "X-Frame-Options": {
+            "risk": (
+                "Clickjacking. The page can be embedded in an invisible iframe on a "
+                "malicious site and users tricked into clicking authenticated actions."
+            ),
+            "fix": "X-Frame-Options: DENY  (or use CSP: frame-ancestors 'none')",
+        },
+        "X-Content-Type-Options": {
+            "risk": (
+                "MIME-sniffing. Browsers may interpret uploaded or served files as a "
+                "different content type than declared, enabling XSS via file uploads "
+                "(e.g. a .txt file being executed as JavaScript)."
+            ),
+            "fix": "X-Content-Type-Options: nosniff",
+        },
+        "Referrer-Policy": {
+            "risk": (
+                "Full URLs (paths, query strings) are sent in the Referer header to "
+                "every cross-origin resource. Can leak session tokens in URLs, "
+                "internal page structure, or sensitive identifiers."
+            ),
+            "fix": "Referrer-Policy: strict-origin-when-cross-origin",
+        },
+        "Permissions-Policy": {
+            "risk": (
+                "Embedded iframes and compromised scripts can request access to "
+                "camera, microphone, geolocation, USB, etc. without your origin "
+                "restricting which features may be used."
+            ),
+            "fix": "Permissions-Policy: camera=(), microphone=(), geolocation=()",
+        },
+        "Server": {
+            "risk": (
+                "Reveals server software (and sometimes version) — helps attackers "
+                "narrow down which exploits to try first."
+            ),
+            "fix": "Remove the header, or strip the version (e.g. Server: nginx).",
+        },
+        "X-Powered-By": {
+            "risk": "Reveals application stack and/or framework version — unnecessary disclosure.",
+            "fix": "Remove the header from your server / framework config.",
+        },
+        "X-AspNet-Version": {
+            "risk": "Reveals exact .NET framework version — helps target known CVEs.",
+            "fix": "In web.config: <httpRuntime enableVersionHeader=\"false\" />",
+        },
+        "X-AspNetMvc-Version": {
+            "risk": "Reveals exact ASP.NET MVC version — same as above.",
+            "fix": "Remove via MvcHandler.DisableMvcResponseHeader = true.",
+        },
     },
-    "Content-Security-Policy": {
-        "risk": (
-            "XSS (Cross-Site Scripting) impact is unconstrained. Any injected "
-            "<script> tag or inline JS executes with full page permissions — "
-            "session theft, account takeover, defacement."
-        ),
-        "fix": "Start with: default-src 'self'; then refine per resource type.",
-    },
-    "X-Frame-Options": {
-        "risk": (
-            "Clickjacking. The page can be embedded in an invisible iframe on a "
-            "malicious site and users tricked into clicking authenticated actions."
-        ),
-        "fix": "X-Frame-Options: DENY  (or use CSP: frame-ancestors 'none')",
-    },
-    "X-Content-Type-Options": {
-        "risk": (
-            "MIME-sniffing. Browsers may interpret uploaded or served files as a "
-            "different content type than declared, enabling XSS via file uploads "
-            "(e.g. a .txt file being executed as JavaScript)."
-        ),
-        "fix": "X-Content-Type-Options: nosniff",
-    },
-    "Referrer-Policy": {
-        "risk": (
-            "Full URLs (paths, query strings) are sent in the Referer header to "
-            "every cross-origin resource. Can leak session tokens in URLs, "
-            "internal page structure, or sensitive identifiers."
-        ),
-        "fix": "Referrer-Policy: strict-origin-when-cross-origin",
-    },
-    "Permissions-Policy": {
-        "risk": (
-            "Embedded iframes and compromised scripts can request access to "
-            "camera, microphone, geolocation, USB, etc. without your origin "
-            "restricting which features may be used."
-        ),
-        "fix": "Permissions-Policy: camera=(), microphone=(), geolocation=()",
-    },
-    "Server": {
-        "risk": (
-            "Reveals server software (and sometimes version) — helps attackers "
-            "narrow down which exploits to try first."
-        ),
-        "fix": "Remove the header, or strip the version (e.g. Server: nginx).",
-    },
-    "X-Powered-By": {
-        "risk": "Reveals application stack and/or framework version — unnecessary disclosure.",
-        "fix": "Remove the header from your server / framework config.",
-    },
-    "X-AspNet-Version": {
-        "risk": "Reveals exact .NET framework version — helps target known CVEs.",
-        "fix": "In web.config: <httpRuntime enableVersionHeader=\"false\" />",
-    },
-    "X-AspNetMvc-Version": {
-        "risk": "Reveals exact ASP.NET MVC version — same as above.",
-        "fix": "Remove via MvcHandler.DisableMvcResponseHeader = true.",
+    "pt": {
+        "Strict-Transport-Security": {
+            "risk": (
+                "Sem HSTS, os browsers podem ligar-se via HTTP simples pelo menos uma "
+                "vez. Um atacante na rede pode intercetar esse pedido (SSL stripping) "
+                "e servir uma versão maliciosa não cifrada da página."
+            ),
+            "fix": "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+        },
+        "Content-Security-Policy": {
+            "risk": (
+                "O impacto de XSS (Cross-Site Scripting) fica ilimitado. Qualquer tag "
+                "<script> injetada ou JavaScript inline executa com todas as "
+                "permissões da página — roubo de sessão, account takeover, defacement."
+            ),
+            "fix": "Começa com: default-src 'self'; depois refina por tipo de recurso.",
+        },
+        "X-Frame-Options": {
+            "risk": (
+                "Clickjacking. A página pode ser embebida num iframe invisível num "
+                "site malicioso e os utilizadores enganados a clicar em ações "
+                "autenticadas."
+            ),
+            "fix": "X-Frame-Options: DENY  (ou usa CSP: frame-ancestors 'none')",
+        },
+        "X-Content-Type-Options": {
+            "risk": (
+                "MIME-sniffing. Os browsers podem interpretar ficheiros servidos ou "
+                "enviados com um content-type diferente do declarado, abrindo "
+                "caminho a XSS via uploads (ex: um ficheiro .txt executado como "
+                "JavaScript)."
+            ),
+            "fix": "X-Content-Type-Options: nosniff",
+        },
+        "Referrer-Policy": {
+            "risk": (
+                "URLs completos (paths, query strings) são enviados no header Referer "
+                "para todos os recursos cross-origin. Pode expor tokens de sessão em "
+                "URLs, estrutura interna da aplicação ou identificadores sensíveis."
+            ),
+            "fix": "Referrer-Policy: strict-origin-when-cross-origin",
+        },
+        "Permissions-Policy": {
+            "risk": (
+                "Iframes embebidos e scripts comprometidos podem pedir acesso à "
+                "câmara, microfone, geolocalização, USB, etc. sem que a tua origem "
+                "restrinja que funcionalidades podem ser usadas."
+            ),
+            "fix": "Permissions-Policy: camera=(), microphone=(), geolocation=()",
+        },
+        "Server": {
+            "risk": (
+                "Revela o software do servidor (e por vezes a versão) — ajuda os "
+                "atacantes a saber por que exploits começar."
+            ),
+            "fix": "Remove o header, ou retira a versão (ex: Server: nginx).",
+        },
+        "X-Powered-By": {
+            "risk": "Revela a stack/framework da aplicação — disclosure desnecessário.",
+            "fix": "Remove o header da configuração do servidor / framework.",
+        },
+        "X-AspNet-Version": {
+            "risk": "Revela a versão exata do .NET framework — ajuda a apontar CVEs conhecidas.",
+            "fix": "Em web.config: <httpRuntime enableVersionHeader=\"false\" />",
+        },
+        "X-AspNetMvc-Version": {
+            "risk": "Revela a versão exata do ASP.NET MVC — o mesmo problema do anterior.",
+            "fix": "Remove com MvcHandler.DisableMvcResponseHeader = true.",
+        },
     },
 }
 
@@ -166,69 +333,74 @@ def fetch_headers(url: str, timeout: float = 10.0):
         return e.geturl(), e.code, _normalize(e.headers)
 
 
-def check_hsts(headers: dict) -> Finding:
+def check_hsts(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "Strict-Transport-Security"
     raw = headers.get("strict-transport-security")
     if not raw:
-        return Finding(display, MISSING, None, "HTTPS not enforced; supports downgrade attacks")
+        return Finding(display, MISSING, None, N["hsts_missing"])
     max_age_match = re.search(r"max-age\s*=\s*(\d+)", raw, re.I)
     max_age = int(max_age_match.group(1)) if max_age_match else 0
-    if max_age < 15552000:  # 180 days, the commonly-recommended floor
-        return Finding(display, WEAK, raw, f"max-age={max_age} is below 180 days (15552000)")
-    return Finding(display, OK, raw, "HSTS enforced")
+    if max_age < 15552000:
+        return Finding(display, WEAK, raw, N["hsts_weak"].format(max_age))
+    return Finding(display, OK, raw, N["hsts_ok"])
 
 
-def check_csp(headers: dict) -> Finding:
+def check_csp(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "Content-Security-Policy"
     enforced = headers.get("content-security-policy")
     report_only = headers.get("content-security-policy-report-only")
     raw = enforced or report_only
     if not raw:
-        return Finding(display, MISSING, None, "No CSP; XSS payloads are not restricted by the browser")
+        return Finding(display, MISSING, None, N["csp_missing"])
     weak = []
     if "'unsafe-inline'" in raw:
         weak.append("'unsafe-inline'")
     if "'unsafe-eval'" in raw:
         weak.append("'unsafe-eval'")
     if "*" in raw.split():
-        weak.append("wildcard '*' source")
+        weak.append(N["wildcard_source"])
     if weak:
-        return Finding(display, WEAK, raw, "Permissive directives: " + ", ".join(weak))
+        return Finding(display, WEAK, raw, N["csp_weak_directives"].format(", ".join(weak)))
     if report_only and not enforced:
-        return Finding(display, WEAK, raw, "Report-Only mode — not enforced, only logged")
-    return Finding(display, OK, raw, "CSP present and reasonably strict")
+        return Finding(display, WEAK, raw, N["csp_weak_report_only"])
+    return Finding(display, OK, raw, N["csp_ok"])
 
 
-def check_x_frame_options(headers: dict) -> Finding:
+def check_x_frame_options(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "X-Frame-Options"
     raw = headers.get("x-frame-options")
     csp = headers.get("content-security-policy", "")
     if "frame-ancestors" in csp.lower():
         if not raw:
-            return Finding(display, OK, None, "Covered by CSP frame-ancestors")
-        return Finding(display, OK, raw, "Backed up by CSP frame-ancestors")
+            return Finding(display, OK, None, N["xfo_ok_covered"])
+        return Finding(display, OK, raw, N["xfo_ok_backup"])
     if not raw:
-        return Finding(display, MISSING, None, "Clickjacking risk")
+        return Finding(display, MISSING, None, N["xfo_missing"])
     if raw.strip().upper() in ("DENY", "SAMEORIGIN"):
-        return Finding(display, OK, raw, "Iframes restricted")
-    return Finding(display, WEAK, raw, f"Unusual value: {raw}")
+        return Finding(display, OK, raw, N["xfo_ok_restricted"])
+    return Finding(display, WEAK, raw, N["xfo_weak_unusual"].format(raw))
 
 
-def check_x_content_type_options(headers: dict) -> Finding:
+def check_x_content_type_options(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "X-Content-Type-Options"
     raw = headers.get("x-content-type-options")
     if not raw:
-        return Finding(display, MISSING, None, "MIME-sniffing not disabled; consider 'nosniff'")
+        return Finding(display, MISSING, None, N["xcto_missing"])
     if raw.strip().lower() == "nosniff":
-        return Finding(display, OK, raw, "MIME sniffing disabled")
-    return Finding(display, WEAK, raw, "Expected exactly 'nosniff'")
+        return Finding(display, OK, raw, N["xcto_ok"])
+    return Finding(display, WEAK, raw, N["xcto_weak"])
 
 
-def check_referrer_policy(headers: dict) -> Finding:
+def check_referrer_policy(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "Referrer-Policy"
     raw = headers.get("referrer-policy")
     if not raw:
-        return Finding(display, MISSING, None, "Default referrer behavior leaks paths to third parties")
+        return Finding(display, MISSING, None, N["ref_missing"])
     strong_values = {
         "no-referrer",
         "same-origin",
@@ -236,25 +408,27 @@ def check_referrer_policy(headers: dict) -> Finding:
         "strict-origin-when-cross-origin",
     }
     if any(v in raw.lower() for v in strong_values):
-        return Finding(display, OK, raw, "Privacy-respecting policy")
+        return Finding(display, OK, raw, N["ref_ok"])
     if "unsafe-url" in raw.lower() or raw.lower().strip() == "":
-        return Finding(display, WEAK, raw, "Unsafe — sends full URL cross-origin")
-    return Finding(display, WEAK, raw, "Weak policy")
+        return Finding(display, WEAK, raw, N["ref_weak_unsafe"])
+    return Finding(display, WEAK, raw, N["ref_weak"])
 
 
-def check_permissions_policy(headers: dict) -> Finding:
+def check_permissions_policy(headers: dict, lang: str) -> Finding:
+    N = NOTES[lang]
     display = "Permissions-Policy"
     perms = headers.get("permissions-policy")
     feature = headers.get("feature-policy")
     raw = perms or feature
     if not raw:
-        return Finding(display, MISSING, None, "No restriction on browser features (camera, geolocation, etc.)")
+        return Finding(display, MISSING, None, N["perm_missing"])
     if feature and not perms:
-        return Finding(display, WEAK, raw, "Using deprecated Feature-Policy — migrate to Permissions-Policy")
-    return Finding(display, OK, raw, "Permissions policy set")
+        return Finding(display, WEAK, raw, N["perm_weak_feature"])
+    return Finding(display, OK, raw, N["perm_ok"])
 
 
-def check_info_disclosure(headers: dict) -> list[Finding]:
+def check_info_disclosure(headers: dict, lang: str) -> list[Finding]:
+    N = NOTES[lang]
     findings = []
     candidates = (
         ("server", "Server"),
@@ -267,11 +441,11 @@ def check_info_disclosure(headers: dict) -> list[Finding]:
         if not v:
             continue
         if display == "Server" and re.search(r"\d", v):
-            findings.append(Finding(display, WEAK, v, "Reveals server software/version"))
+            findings.append(Finding(display, WEAK, v, N["server_weak_version"]))
         elif display == "Server":
-            findings.append(Finding(display, INFO, v, "Reveals server software (no version)"))
+            findings.append(Finding(display, INFO, v, N["server_info_no_version"]))
         else:
-            findings.append(Finding(display, WEAK, v, "Reveals stack/version — consider removing"))
+            findings.append(Finding(display, WEAK, v, N["info_disclosure"]))
     return findings
 
 
@@ -281,14 +455,17 @@ def colorize(text: str, key: str, use_color: bool) -> str:
     return f"{ANSI[key]}{text}{ANSI['reset']}"
 
 
-def print_human_report(url: str, status: int, findings: list[Finding], use_color: bool) -> None:
+def print_human_report(
+    url: str, status: int, findings: list[Finding], use_color: bool, lang: str
+) -> None:
+    L = LABELS[lang]
     bold = lambda s: f"{ANSI['bold']}{s}{ANSI['reset']}" if use_color else s
     dim = lambda s: f"{ANSI['dim']}{s}{ANSI['reset']}" if use_color else s
 
-    print(f"\n{bold('URL:')}    {url}")
-    print(f"{bold('Status:')} {status}\n")
+    print(f"\n{bold(L['url'] + ':')}    {url}")
+    print(f"{bold(L['status'] + ':')} {status}\n")
 
-    print(bold("Security headers:"))
+    print(bold(L["security_headers"] + ":"))
     name_width = max(len(f.header) for f in findings)
     for f in findings:
         sym = colorize(SYMBOL[f.status], f.status, use_color)
@@ -301,24 +478,26 @@ def print_human_report(url: str, status: int, findings: list[Finding], use_color
 
     ok_count = sum(1 for f in findings if f.status == OK)
     relevant = sum(1 for f in findings if f.status != INFO)
-    print(f"\n{bold('Score:')} {ok_count}/{relevant} headers OK")
+    print(f"\n{bold(L['score'] + ':')} {ok_count}/{relevant} {L['score_suffix']}")
 
-    print_issue_report(findings, use_color)
+    print_issue_report(findings, use_color, lang)
 
 
-def print_issue_report(findings: list[Finding], use_color: bool) -> None:
+def print_issue_report(findings: list[Finding], use_color: bool, lang: str) -> None:
     """Print a per-issue summary with concrete risk and recommended fix."""
+    L = LABELS[lang]
+    risk_info = HEADER_RISK_INFO[lang]
     bold = lambda s: f"{ANSI['bold']}{s}{ANSI['reset']}" if use_color else s
     dim = lambda s: f"{ANSI['dim']}{s}{ANSI['reset']}" if use_color else s
 
     issues = [f for f in findings if f.status in (MISSING, WEAK)]
     if not issues:
-        print(f"\n{colorize('No issues — every checked header is in good shape.', OK, use_color)}")
+        print(f"\n{colorize(L['no_issues'], OK, use_color)}")
         return
 
-    print(f"\n{bold(f'Issues found ({len(issues)}):')}")
+    print(f"\n{bold(L['issues_found'] + f' ({len(issues)}):')}")
     for f in issues:
-        info = HEADER_RISK_INFO.get(f.header, {})
+        info = risk_info.get(f.header, {})
         sym = colorize(SYMBOL[f.status], f.status, use_color)
         status_label = colorize(f.status, f.status, use_color)
         print(f"\n  {sym}  {bold(f.header)} [{status_label}]")
@@ -326,12 +505,12 @@ def print_issue_report(findings: list[Finding], use_color: bool) -> None:
         if risk:
             wrapped = textwrap.wrap(risk, width=72)
             if wrapped:
-                print(f"     {dim('Risk:')} {wrapped[0]}")
+                print(f"     {dim(L['risk_label'])} {wrapped[0]}")
                 for line in wrapped[1:]:
                     print(f"           {line}")
         fix = info.get("fix")
         if fix:
-            print(f"     {dim('Fix: ')} {fix}")
+            print(f"     {dim(L['fix_label'])}{fix}")
 
 
 def main() -> int:
@@ -339,6 +518,12 @@ def main() -> int:
         description="Check security-relevant HTTP response headers of a URL.",
     )
     parser.add_argument("url", help="Target URL (must include scheme: http:// or https://)")
+    parser.add_argument(
+        "--lang",
+        choices=LANGS,
+        default="en",
+        help="Output language (default: en). 'pt' uses European Portuguese.",
+    )
     parser.add_argument(
         "--no-color", action="store_true", help="Disable ANSI colors in output"
     )
@@ -350,51 +535,52 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    L = LABELS[args.lang]
+
     if not re.match(r"^https?://", args.url):
-        print(
-            f"error: URL must start with http:// or https:// (got {args.url!r})",
-            file=sys.stderr,
-        )
+        print(f"{L['err_scheme']} ({L['got']} {args.url!r})", file=sys.stderr)
         return 2
 
     try:
         final_url, status, headers = fetch_headers(args.url, timeout=args.timeout)
     except urllib.error.URLError as e:
-        print(f"error: could not reach {args.url} — {e.reason}", file=sys.stderr)
+        print(f"{L['err_unreachable']} {args.url} — {e.reason}", file=sys.stderr)
         return 3
     except socket.timeout:
-        print(f"error: timeout after {args.timeout}s reaching {args.url}", file=sys.stderr)
+        print(f"{L['err_timeout']} {args.timeout}{L['seconds']} {args.url}", file=sys.stderr)
         return 3
 
     findings: list[Finding] = [
-        check_hsts(headers),
-        check_csp(headers),
-        check_x_frame_options(headers),
-        check_x_content_type_options(headers),
-        check_referrer_policy(headers),
-        check_permissions_policy(headers),
+        check_hsts(headers, args.lang),
+        check_csp(headers, args.lang),
+        check_x_frame_options(headers, args.lang),
+        check_x_content_type_options(headers, args.lang),
+        check_referrer_policy(headers, args.lang),
+        check_permissions_policy(headers, args.lang),
     ]
-    findings.extend(check_info_disclosure(headers))
+    findings.extend(check_info_disclosure(headers, args.lang))
 
     if args.json:
+        risk_info = HEADER_RISK_INFO[args.lang]
         findings_out = []
         for f in findings:
             entry = asdict(f)
             if f.status in (MISSING, WEAK):
-                info = HEADER_RISK_INFO.get(f.header, {})
+                info = risk_info.get(f.header, {})
                 entry["risk"] = info.get("risk")
                 entry["fix"] = info.get("fix")
             findings_out.append(entry)
         out = {
             "url": final_url,
             "status": status,
+            "lang": args.lang,
             "findings": findings_out,
             "issues_count": sum(1 for f in findings if f.status in (MISSING, WEAK)),
         }
-        print(json.dumps(out, indent=2))
+        print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         use_color = sys.stdout.isatty() and not args.no_color
-        print_human_report(final_url, status, findings, use_color)
+        print_human_report(final_url, status, findings, use_color, args.lang)
 
     has_missing = any(f.status == MISSING for f in findings)
     return 1 if has_missing else 0

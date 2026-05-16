@@ -50,10 +50,21 @@ Inspect the security-relevant HTTP response headers of any URL and produce a qui
 
 ```bash
 tools/check_headers.py https://example.com
+tools/check_headers.py https://example.com --lang pt        # European Portuguese
 tools/check_headers.py https://example.com --no-color
 tools/check_headers.py https://example.com --json
 tools/check_headers.py https://slow-host.example --timeout 30
 ```
+
+### Output
+
+The human-readable output has three sections:
+
+1. **Header table** — status (✓ OK / ! WEAK / ✗ MISSING / i INFO) for each checked header, with the value the server returned.
+2. **Score** — `N/6 headers OK` (info-disclosure headers don't count toward the score).
+3. **Issues found** — for every MISSING and WEAK header: the concrete attack/risk it enables and a one-line fix recommendation.
+
+JSON output (`--json`) includes `risk` and `fix` fields per finding, plus `issues_count` at the top level. The `--lang` flag affects both human and JSON output.
 
 Exit codes:
 
