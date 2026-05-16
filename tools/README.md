@@ -44,6 +44,9 @@ Inspect the security-relevant HTTP response headers of any URL and produce a qui
 | `X-Content-Type-Options` | Disables MIME-sniffing (`nosniff`) |
 | `Referrer-Policy` | Limits referrer info leakage |
 | `Permissions-Policy` | Restricts browser features (camera, geolocation, etc.) |
+| `Cross-Origin-Opener-Policy` | Isolates browsing context from cross-origin windows |
+| `Cross-Origin-Embedder-Policy` | Requires cross-origin resources to opt-in |
+| `Cross-Origin-Resource-Policy` | Controls who may embed this resource |
 | `Server`, `X-Powered-By`, `X-AspNet-*` | Information disclosure |
 
 ### Usage
@@ -61,7 +64,7 @@ tools/check_headers.py https://slow-host.example --timeout 30
 The human-readable output has three sections:
 
 1. **Header table** — status (✓ OK / ! WEAK / ✗ MISSING / i INFO) for each checked header, with the value the server returned.
-2. **Score** — `N/6 headers OK` (info-disclosure headers don't count toward the score).
+2. **Score** — `N/9 headers OK` (info-disclosure headers don't count toward the score).
 3. **Issues found** — for every MISSING and WEAK header: the concrete attack/risk it enables and a one-line fix recommendation.
 
 JSON output (`--json`) includes `risk` and `fix` fields per finding, plus `issues_count` at the top level. The `--lang` flag affects both human and JSON output.
@@ -133,7 +136,7 @@ echo "$JWT" | tools/jwt_inspect.py -
 
 ## `cors_check.py`
 
-Probe a URL with several different `Origin` header values (arbitrary attacker, `null`, prefix/suffix tricks, legitimate) and inspect the `Access-Control-Allow-Origin` / `Access-Control-Allow-Credentials` responses. Flags reflected arbitrary origins, wildcard + credentials, `null` + credentials, and prefix/suffix-match bugs.
+Probe a URL with several different `Origin` header values (arbitrary attacker, `null`, prefix/suffix tricks, legitimate). For each origin, sends both **GET** and **OPTIONS preflight** (with `Access-Control-Request-Method`/`Access-Control-Request-Headers`), then inspects the `Access-Control-Allow-Origin/Credentials/Methods/Headers` responses. Flags reflected arbitrary origins, wildcard + credentials, `null` + credentials, and prefix/suffix-match bugs.
 
 ```bash
 tools/cors_check.py https://api.example.com/users/me
