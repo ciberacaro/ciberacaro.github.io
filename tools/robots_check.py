@@ -80,7 +80,6 @@ INTERESTING_PATTERNS = (
     r"admin",
     r"api",
     r"backup",
-    r"backups?\b",
     r"\bbeta\b",
     r"\bconfig\b",
     r"\bdebug\b",
