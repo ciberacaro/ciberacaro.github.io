@@ -97,8 +97,11 @@ ISSUE_TEXT = {
 @dataclass
 class Probe:
     origin: str
+    method: str  # 'GET' or 'OPTIONS' (preflight)
     acao: Optional[str]
     acac: Optional[str]
+    acam: Optional[str]  # Access-Control-Allow-Methods
+    acah: Optional[str]  # Access-Control-Allow-Headers
     status: int
     error: Optional[str] = None
 
@@ -130,23 +133,40 @@ def build_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
-def probe(url: str, origin: Optional[str], timeout: float) -> Probe:
+def _read_cors_headers(resp_headers) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    if resp_headers is None:
+        return (None, None, None, None)
+    return (
+        resp_headers.get("Access-Control-Allow-Origin"),
+        resp_headers.get("Access-Control-Allow-Credentials"),
+        resp_headers.get("Access-Control-Allow-Methods"),
+        resp_headers.get("Access-Control-Allow-Headers"),
+    )
+
+
+def probe(url: str, origin: Optional[str], method: str, timeout: float) -> Probe:
     headers = {"User-Agent": USER_AGENT}
     if origin is not None:
         headers["Origin"] = origin
-    req = urllib.request.Request(url, headers=headers, method="GET")
+    if method == "OPTIONS":
+        # Preflight needs these two request headers to trigger a real
+        # preflight response from the target.
+        headers["Access-Control-Request-Method"] = "PUT"
+        headers["Access-Control-Request-Headers"] = "X-Probe-Header"
+    req = urllib.request.Request(url, headers=headers, method=method)
     ctx = build_ssl_context()
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            acao = resp.headers.get("Access-Control-Allow-Origin")
-            acac = resp.headers.get("Access-Control-Allow-Credentials")
-            return Probe(origin=origin or "", acao=acao, acac=acac, status=resp.status)
+            acao, acac, acam, acah = _read_cors_headers(resp.headers)
+            return Probe(origin=origin or "", method=method, acao=acao, acac=acac,
+                         acam=acam, acah=acah, status=resp.status)
     except urllib.error.HTTPError as e:
-        acao = e.headers.get("Access-Control-Allow-Origin") if e.headers else None
-        acac = e.headers.get("Access-Control-Allow-Credentials") if e.headers else None
-        return Probe(origin=origin or "", acao=acao, acac=acac, status=e.code)
+        acao, acac, acam, acah = _read_cors_headers(e.headers)
+        return Probe(origin=origin or "", method=method, acao=acao, acac=acac,
+                     acam=acam, acah=acah, status=e.code)
     except (urllib.error.URLError, socket.timeout) as e:
-        return Probe(origin=origin or "", acao=None, acac=None, status=0, error=str(e))
+        return Probe(origin=origin or "", method=method, acao=None, acac=None,
+                     acam=None, acah=None, status=0, error=str(e))
 
 
 def build_probes(url: str) -> list[str]:
@@ -220,11 +240,14 @@ def print_human(url: str, probes: list[Probe], issues: list[Issue], lang: str) -
     for p in probes:
         origin_display = p.origin or "(none)"
         if p.error:
-            print(f"  - {origin_display:<{name_width}}  ERROR: {p.error}")
+            print(f"  - {p.method:<7} {origin_display:<{name_width}}  ERROR: {p.error}")
             continue
         acao = p.acao or "—"
         acac = p.acac or "—"
-        print(f"  - {origin_display:<{name_width}}  [{L['status']}: {p.status}]  {L['response']}: {acao}  {L['credentials']}: {acac}")
+        extra = ""
+        if p.method == "OPTIONS":
+            extra = f"  ACAM: {p.acam or '—'}  ACAH: {p.acah or '—'}"
+        print(f"  - {p.method:<7} {origin_display:<{name_width}}  [{L['status']}: {p.status}]  {L['response']}: {acao}  {L['credentials']}: {acac}{extra}")
 
     if issues:
         print(f"\n{L['issues_header']} ({len(issues)}):")
@@ -255,7 +278,10 @@ def main() -> int:
     parsed = urllib.parse.urlparse(args.url)
     host = parsed.hostname or ""
     origins = build_probes(args.url)
-    probes = [probe(args.url, origin, args.timeout) for origin in origins]
+    probes = []
+    for origin in origins:
+        probes.append(probe(args.url, origin, "GET", args.timeout))
+        probes.append(probe(args.url, origin, "OPTIONS", args.timeout))
     issues = evaluate(probes, host, args.lang)
 
     if args.json:
