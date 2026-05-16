@@ -84,8 +84,20 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ `.claude/settings.json` configured:
   - `defaultMode: "bypassPermissions"` — Claude auto-accepts Bash/edits in this project (Luís opted in). **Be extra careful with destructive operations** — there is no prompt to catch a mistake. Confirm explicitly in chat before any `rm -rf`, `git push --force`, branch deletion, or anything irreversible.
   - `allow: ["Bash(gh run watch *)"]` — read-only allowlist (mostly redundant given bypassPermissions, kept for clarity).
-- ✅ Writeup skeleton generator at `tools/new_writeup.py` (Python 3.8+ stdlib). Generates Chirpy-compatible posts in `_posts/` with standard pentest sections. See `tools/README.md` for usage.
-- ✅ HTTP security headers analyzer at `tools/check_headers.py` (Python 3.8+ stdlib). Checks HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy + info-disclosure. Human + JSON output. macOS SSL fallback baked in. See `tools/README.md`.
+- ✅ Toolchain at `tools/` (Python 3.8+ stdlib, all bilingual `--lang en|pt`):
+  - `new_writeup.py` — generate Chirpy-compatible writeup skeletons.
+  - `check_headers.py` — analyze security headers + per-issue risk/fix report.
+  - `multidecode.py` — auto-decode Base64/Base32/hex/URL/binary/ROT13, with `--cascade`.
+  - `robots_check.py` — parse /robots.txt + /sitemap.xml, highlight interesting paths.
+  - `hashid.py` — identify hash types (~25 signatures, confidence-ranked, hashcat modes).
+  - `tls_inspect.py` — fetch TLS cert (even bad ones), flag expired/weak-sig/self-signed/host-mismatch.
+  - `jwt_inspect.py` — decode JWTs, flag alg:none, expired, missing iss/aud, kid traversal.
+  - `cors_check.py` — probe with attacker/null/prefix/suffix Origins, flag reflection / wildcard+creds / null acceptance.
+  - `subfinder.py` — crt.sh + DNS wordlist subdomain enumeration.
+  - `htb_stats.py` — HackTheBox badge markdown generator (no token); profile stats with HTB_TOKEN.
+  - `header_diff.py` — snapshot + diff security headers over time (builds on check_headers.py).
+  - See `tools/README.md` for the full usage reference per tool.
+  - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
 - ⏳ **Open work items:**
   - First actual writeup (use the generator + fill it in after Luís has CTF content)
   - Avatar image

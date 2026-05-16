@@ -79,6 +79,101 @@ Exit codes:
 
 Python 3.8+, standard library only. On macOS Python.org installs, the script falls back to `/etc/ssl/cert.pem` automatically if the default SSL context has no CAs configured.
 
+## `multidecode.py`
+
+Auto-detect and decode common encodings: Base64, Base32, hex, URL, binary, ROT13. Useful when you grab a suspicious string from a CTF or HTTP traffic.
+
+```bash
+tools/multidecode.py "SGVsbG8gd29ybGQh"
+tools/multidecode.py "%2Fetc%2Fpasswd" --lang pt
+echo -n "deadbeef" | tools/multidecode.py -
+tools/multidecode.py "VGhlIGJyb3duIGZveA==" --cascade
+```
+
+`--cascade` recursively decodes (e.g. Base64-of-Base64) until nothing new appears.
+
+## `robots_check.py`
+
+Fetch `/robots.txt` and `/sitemap.xml`. Lists rules per User-Agent, highlights paths matching interesting patterns (admin, api, backup, debug, .git, etc.), and prints the first 50 sitemap URLs as a recon starting point.
+
+```bash
+tools/robots_check.py https://example.com
+tools/robots_check.py https://example.com --lang pt --json
+```
+
+## `hashid.py`
+
+Identify the likely type(s) of a hash string. Knows ~25 formats: MD5/SHA-family, bcrypt, scrypt, Argon2, phpass (WordPress), Apache APR1, Unix crypt variants ($1$/$5$/$6$/$y$), MySQL old/new, NTLM/LM pwdump format, base64-encoded LDAP forms, and JWT (commonly mistaken for a hash). Ranks candidates by confidence and includes hashcat mode hints.
+
+```bash
+tools/hashid.py 5f4dcc3b5aa765d61d8327deb882cf99
+tools/hashid.py '$2b$12$...' --lang pt
+echo "098f6bcd..." | tools/hashid.py -
+```
+
+## `tls_inspect.py`
+
+Connect to a host:port, fetch the TLS certificate (with `CERT_NONE` so even bad certs can be inspected), and report issuer/subject/validity/SANs/signature algorithm/TLS version/cipher. Flags expired, expiring-soon (<30 days), self-signed, weak signature algorithms (MD5/SHA-1), overly broad wildcards, and host-name mismatches.
+
+```bash
+tools/tls_inspect.py example.com
+tools/tls_inspect.py example.com:8443 --lang pt
+tools/tls_inspect.py https://github.com --json
+```
+
+## `jwt_inspect.py`
+
+Decode a JSON Web Token (header / payload / signature), pretty-print claims with human-readable timestamps and validity windows, and flag common issues: `alg: none`, weak algorithms, missing `exp`, expired tokens, validity windows >24h, missing `iss`/`aud`, and path-traversal patterns in the `kid` header.
+
+```bash
+tools/jwt_inspect.py "eyJhbGciOi..."
+tools/jwt_inspect.py "$JWT" --lang pt
+echo "$JWT" | tools/jwt_inspect.py -
+```
+
+## `cors_check.py`
+
+Probe a URL with several different `Origin` header values (arbitrary attacker, `null`, prefix/suffix tricks, legitimate) and inspect the `Access-Control-Allow-Origin` / `Access-Control-Allow-Credentials` responses. Flags reflected arbitrary origins, wildcard + credentials, `null` + credentials, and prefix/suffix-match bugs.
+
+```bash
+tools/cors_check.py https://api.example.com/users/me
+tools/cors_check.py https://api.example.com/users/me --lang pt --json
+```
+
+## `subfinder.py`
+
+Enumerate subdomains for a base domain. Queries crt.sh transparency-logs JSON API, then optionally brute-forces a small built-in wordlist (or one you provide). All candidates are DNS-resolved in parallel (default 20 threads). Output lists each resolved host with source (crt.sh / wordlist) and IPs.
+
+```bash
+tools/subfinder.py example.com
+tools/subfinder.py example.com --lang pt
+tools/subfinder.py example.com --wordlist /usr/share/wordlists/subdomains-top1million.txt
+tools/subfinder.py example.com --skip-crtsh        # only wordlist brute-force
+tools/subfinder.py example.com --skip-bruteforce   # only crt.sh
+```
+
+## `htb_stats.py`
+
+Generate HackTheBox profile-badge markdown ready to paste into a README or post (no API token needed). Optionally fetch profile stats (rank, points, owns, respects) via the HTB v4 API when you set `HTB_TOKEN` or pass `--token`.
+
+```bash
+tools/htb_stats.py 12345                          # numeric HTB user ID
+tools/htb_stats.py 12345 --badge-only --lang pt
+HTB_TOKEN=eyJ... tools/htb_stats.py 12345 --json
+```
+
+## `header_diff.py`
+
+Builds on `check_headers.py`. Snapshot a URL's security headers to `.header_snapshots/<host>/<timestamp>.json`, then diff the current state against the latest snapshot. Catches regressions when site config, CDN, or framework changes silently strip a header.
+
+```bash
+tools/header_diff.py snapshot https://ciberacaro.github.io
+tools/header_diff.py diff     https://ciberacaro.github.io
+tools/header_diff.py diff     https://ciberacaro.github.io --lang pt --json
+```
+
+`.header_snapshots/` is gitignored — it's local state, not artifact.
+
 ## `run.sh` / `test.sh`
 
 Local Jekyll preview and build-test scripts shipped with the Chirpy starter. Useful for previewing changes locally before pushing.
