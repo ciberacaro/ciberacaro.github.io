@@ -135,17 +135,19 @@ def query_crtsh(domain: str, timeout: float = 30.0) -> list[str]:
     return sorted(seen)
 
 
-def resolve(host: str, timeout: float = 3.0) -> list[str]:
-    """Return list of A/AAAA addresses for host, empty if it doesn't resolve."""
-    socket.setdefaulttimeout(timeout)
+def resolve(host: str) -> list[str]:
+    """Return list of A/AAAA addresses for host, empty if it doesn't resolve.
+
+    Note: getaddrinfo() does not honour socket.setdefaulttimeout() — that
+    timeout only affects subsequent socket I/O, not the underlying DNS
+    resolver. So we don't bother setting it (the previous version did,
+    and worse, did so as a global side effect that race'd between threads).
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except (socket.gaierror, socket.timeout, OSError):
         return []
-    finally:
-        socket.setdefaulttimeout(None)
-    ips = sorted({info[4][0] for info in infos})
-    return ips
+    return sorted({info[4][0] for info in infos})
 
 
 def resolve_many(hosts: list[str], threads: int = 20) -> dict[str, list[str]]:
