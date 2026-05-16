@@ -96,6 +96,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - **Chat language:** Portuguese (European). All portfolio content stays in English.
 - **Tone:** Direct, concrete. Beginner-friendly — don't assume security background. Explain trade-offs, not just answers.
 - **Be honest about market reality.** Pentesting junior roles are competitive in Portugal — SOC analyst is the more common entry point. Don't pretend otherwise.
+- **Working preference:** Luís prefers continuing portfolio development with Claude's help rather than being told to step away and "go learn first." Suggest concrete dev tasks (tools, infra, content scaffolding, polish) at decision points. Don't nudge him toward stepping away unless he asks for a learning recommendation.
 - **Reversibility:** Confirm before destructive actions (force pushes, deleting repos, large refactors).
 - **Verify before claiming success.** Don't assume the live site reflects changes — fetch and check. Note: GitHub CDN caching can lag the build by 1-2 min.
 
