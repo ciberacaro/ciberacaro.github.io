@@ -84,7 +84,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ `.claude/settings.json` configured:
   - `defaultMode: "bypassPermissions"` — Claude auto-accepts Bash/edits in this project (Luís opted in). **Be extra careful with destructive operations** — there is no prompt to catch a mistake. Confirm explicitly in chat before any `rm -rf`, `git push --force`, branch deletion, or anything irreversible.
   - `allow: ["Bash(gh run watch *)"]` — read-only allowlist (mostly redundant given bypassPermissions, kept for clarity).
-- ✅ Toolchain at `tools/` (Python 3.8+ stdlib). Shared utilities in `tools/_lib.py`. All tools support `--lang {en,pt}`, `--version`, and stdin via `-`. Uniform exit codes (0 ok / 1 issues / 2 usage / 3 network).
+- ✅ Toolchain at `tools/` (Python 3.8+ stdlib). Shared utilities in `tools/_lib.py`. All tools support `--lang {en,pt}`, `--version`, and stdin via `-`. Uniform exit codes (0 ok / 1 issues / 2 usage / 3 network). 21 tools total — see `tools/README.md` for the canonical reference. Key additions in 2026-05-17 wave: `http_methods`, `cookie_check`, `dns_records` (raw UDP/TCP DNS), `secrets_scan` (filesystem + git history), `recon` (orchestrator), `whois_check`, `wayback_check`, `tech_fingerprint`, `password_strength` (HIBP k-anonymity), `cve_lookup` (NVD v2).
   - `new_writeup.py` — generate Chirpy-compatible writeup skeletons.
   - `check_headers.py` — analyze security headers + per-issue risk/fix report.
   - `multidecode.py` — auto-decode Base64/Base32/hex/URL/binary/ROT13, with `--cascade`.

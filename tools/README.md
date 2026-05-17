@@ -193,6 +193,101 @@ tools/header_diff.py diff     https://ciberacaro.github.io --lang pt --json
 
 `.header_snapshots/` is gitignored — it's local state, not artifact.
 
+## `http_methods.py`
+
+Test which HTTP methods an endpoint accepts. Sends each of GET/HEAD/OPTIONS/POST/PUT/PATCH/DELETE/TRACE/CONNECT via a raw socket (urllib refuses non-standard methods on some setups). Flags TRACE/CONNECT enabled, destructive methods returning 2xx, OPTIONS without `Allow` header, and TRACE reflection (XST signature).
+
+```bash
+tools/http_methods.py https://example.com/api/users/me
+tools/http_methods.py https://example.com/ --lang pt --json
+```
+
+⚠️ Sends real PUT/DELETE/PATCH with empty bodies. Run only against endpoints you are authorised to test.
+
+## `cookie_check.py`
+
+Analyse `Set-Cookie` response headers. Flags missing HttpOnly on session-looking names, missing Secure over HTTPS, missing SameSite, SameSite=None without Secure, and Domain scoped wider than the response host.
+
+```bash
+tools/cookie_check.py https://example.com
+tools/cookie_check.py https://example.com --lang pt --json
+```
+
+## `dns_records.py`
+
+Pure-stdlib DNS client (raw UDP/53 with TCP fallback per RFC 1035 §4.2.2). Queries A/AAAA/MX/NS/TXT/CAA and analyses email auth: SPF (missing, multiple, `~all`/`?all`), DMARC (missing, `p=none`), CAA (missing).
+
+```bash
+tools/dns_records.py example.com
+tools/dns_records.py example.com --resolver 1.1.1.1 --lang pt
+```
+
+## `secrets_scan.py`
+
+Scan filesystem or git history for committed credentials. Patterns for AWS keys, Stripe/Slack/GitHub/Twilio/SendGrid tokens, Google API keys, JWT-like strings, private-key PEM blocks, DB connection URLs with passwords, and generic `api_key='...'` assignments. All matches masked in the output.
+
+```bash
+tools/secrets_scan.py --path .                     # current directory
+tools/secrets_scan.py --path ~/Projects/some-repo
+tools/secrets_scan.py --git-history                # scan all commits
+```
+
+## `recon.py`
+
+Orchestrator: runs `subfinder.py` → for each resolved subdomain, in parallel runs `check_headers.py` + `tls_inspect.py` + `cookie_check.py`. Adds one `dns_records.py` on the base domain. Aggregates the result into a single Markdown report.
+
+```bash
+tools/recon.py example.com --top 10
+tools/recon.py example.com --output report.md --lang pt
+```
+
+## `whois_check.py`
+
+WHOIS lookup via TCP/43. Two-step: queries IANA for the TLD-authoritative server, then queries it (and follows up to a registrar-specific server when advertised). Parses common fields across multiple TLDs. Flags expired, expiring-soon (<30 days), and unsigned DNSSEC.
+
+```bash
+tools/whois_check.py example.com
+tools/whois_check.py sapo.pt --lang pt
+```
+
+## `wayback_check.py`
+
+Wayback Machine snapshot lookup via the `archive.org` availability and CDX APIs. `--timeline` lists historical snapshots; `--diff` fetches the closest snapshot and unified-diffs it against the live URL.
+
+```bash
+tools/wayback_check.py https://example.com
+tools/wayback_check.py https://example.com --timeline --limit 20
+tools/wayback_check.py https://example.com --diff
+```
+
+## `tech_fingerprint.py`
+
+Identify the technology stack behind a website from response headers, cookies, and HTML (Wappalyzer-lite). Signature database covers nginx, Apache, IIS, Caddy; Cloudflare, Fastly, Cloudfront, Akamai; PHP, ASP.NET, Python, Ruby, Java EE; React, Vue, Svelte, Next, Nuxt, Angular, jQuery, Alpine; WordPress, Drupal, Joomla, Ghost; Shopify, Magento, WooCommerce; Jekyll, Hugo, Gatsby; Google Analytics, Plausible, Matomo; Rails, Django, Laravel cookies.
+
+```bash
+tools/tech_fingerprint.py https://example.com
+tools/tech_fingerprint.py https://example.com --lang pt --json
+```
+
+## `password_strength.py`
+
+Entropy-based scoring (0-10) + Have I Been Pwned check via k-anonymity (only the first 5 hex chars of SHA-1(password) are sent — the full password never leaves the machine). Reads via `getpass` by default (no echo); accepts `--stdin` for piping.
+
+```bash
+tools/password_strength.py                  # prompts, no echo
+echo "hunter2" | tools/password_strength.py --stdin
+tools/password_strength.py --stdin --no-breach --lang pt
+```
+
+## `cve_lookup.py`
+
+Fetch CVE details from the NVD v2 API. Reports description, CVSS v3 / v2 scores and vectors, CWE weaknesses, affected CPEs, and references with their NVD tags.
+
+```bash
+tools/cve_lookup.py CVE-2021-44228
+tools/cve_lookup.py CVE-2021-44228 --lang pt --json
+```
+
 ## `project_sync.sh`
 
 Helper for keeping the claude.ai Project knowledge in sync with this repo. Run it after editing `CLAUDE.md` or `SESSION_LOG.md`. It:
