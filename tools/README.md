@@ -10,6 +10,7 @@ These rules hold for every Python tool in this directory unless its own section 
 - **Bilingual:** every tool with non-trivial output supports `--lang {en,pt}`. Default is `en`; `pt` is European Portuguese.
 - **Version:** every tool exposes `--version`. The version string is centralised in `_lib.TOOLS_VERSION`.
 - **Stdin:** every tool that takes a single positional argument (URL, host, domain, token, hash, text, user ID) accepts `-` to read it from stdin. Useful for `... | xargs` pipelines and `... | tool -` chains.
+- **User-Agent override:** every tool that makes HTTP requests accepts `--user-agent STRING`. Useful for evading WAFs that block scripted clients, or for testing how a target serves different UAs. Default is the tool's own UA string.
 - **Exit codes** (uniform across tools):
 
   | Code | Meaning |
@@ -34,6 +35,7 @@ Shared utilities (not a runnable tool) used by every other script here. Stdlib-o
 | `build_ssl_context()` | SSL context with macOS Python.org CA fallback |
 | `stdin_or_arg(value)` | Return `value`, or read from stdin if `value == "-"` |
 | `add_version_arg(parser, tool_name)` | Register a uniform `--version` action on an argparse parser |
+| `add_user_agent_arg(parser, default)` | Register a uniform `--user-agent STRING` override |
 
 ## `new_writeup.py`
 
@@ -98,6 +100,8 @@ The human-readable output has three sections:
 
 JSON output (`--json`) includes `risk` and `fix` fields per finding, plus `issues_count` at the top level. The `--lang` flag affects both human and JSON output.
 
+When the URL redirects (301/302/303/307/308), the report shows both the requested URL and the final URL, plus the full redirect chain, with a warning that the headers describe the destination not the origin (a common source of misleading "looks fine" results).
+
 ## `multidecode.py`
 
 Auto-detect and decode common encodings: Base64, Base32, hex, URL, binary, ROT13. Useful when you grab a suspicious string from a CTF or HTTP traffic.
@@ -134,6 +138,8 @@ echo "098f6bcd..." | tools/hashid.py -
 
 Connect to a host:port, fetch the TLS certificate (with `CERT_NONE` so even bad certs can be inspected), and report issuer/subject/validity/SANs/signature algorithm/TLS version/cipher. Flags expired, expiring-soon (<30 days), self-signed, weak signature algorithms (MD5/SHA-1), overly broad wildcards, and host-name mismatches.
 
+Also enumerates which TLS versions the server actually accepts by attempting handshakes with SSLv3 / TLS 1.0 / 1.1 / 1.2 / 1.3 pinned. A `deprecated` version reported as `accepted` becomes an issue (BEAST / POODLE territory). Versions disabled at Python build-time show as `not tested`.
+
 ```bash
 tools/tls_inspect.py example.com
 tools/tls_inspect.py example.com:8443 --lang pt
@@ -161,7 +167,7 @@ tools/cors_check.py https://api.example.com/users/me --lang pt --json
 
 ## `subfinder.py`
 
-Enumerate subdomains for a base domain. Queries crt.sh transparency-logs JSON API, then optionally brute-forces a small built-in wordlist (or one you provide). All candidates are DNS-resolved in parallel (default 20 threads). Output lists each resolved host with source (crt.sh / wordlist) and IPs.
+Enumerate subdomains for a base domain. Queries crt.sh transparency-logs JSON API, then optionally brute-forces a small built-in wordlist (or one you provide). All candidates are DNS-resolved in parallel (default 10 threads) with a small per-worker jitter to spread the load across resolvers instead of bursting them.
 
 ```bash
 tools/subfinder.py example.com
@@ -169,6 +175,7 @@ tools/subfinder.py example.com --lang pt
 tools/subfinder.py example.com --wordlist /usr/share/wordlists/subdomains-top1million.txt
 tools/subfinder.py example.com --skip-crtsh        # only wordlist brute-force
 tools/subfinder.py example.com --skip-bruteforce   # only crt.sh
+tools/subfinder.py example.com --threads 20 --jitter 0.3   # tune for your resolver
 ```
 
 ## `htb_stats.py`
@@ -225,6 +232,8 @@ tools/dns_records.py example.com --resolver 1.1.1.1 --lang pt
 ## `secrets_scan.py`
 
 Scan filesystem or git history for committed credentials. Patterns for AWS keys, Stripe/Slack/GitHub/Twilio/SendGrid tokens, Google API keys, JWT-like strings, private-key PEM blocks, DB connection URLs with passwords, and generic `api_key='...'` assignments. All matches masked in the output.
+
+Generic credential assignments are entropy-gated (Shannon entropy ≥ 3.5 bits/char on the captured value) to suppress false positives on documentation placeholders and low-randomness strings (`"exampletoken"`, `"changeme1234"`, repeated chars).
 
 ```bash
 tools/secrets_scan.py --path .                     # current directory

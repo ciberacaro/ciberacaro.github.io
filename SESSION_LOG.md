@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-17.
+Last updated: 2026-05-18.
 
 ---
 
@@ -13,6 +13,17 @@ Last updated: 2026-05-17.
 **Goal at the start:** Build a cybersecurity portfolio from scratch — Luís is transitioning into the field, targets pentesting/red team, has ~10-20 hours/week.
 
 **Final outcome:** Site live with bilingual About, 11 working CLI security tools, full local + remote tooling setup, project context portable across machines.
+
+### Session 2 — 2026-05-17 to 2026-05-18
+
+**Goal at the start:** Add more tools, harden the toolchain, then critically review and fix.
+
+**What was built:**
+- 10 new tools: `http_methods`, `cookie_check`, `dns_records`, `secrets_scan`, `recon` (orchestrator), `whois_check`, `wayback_check`, `tech_fingerprint`, `password_strength`, `cve_lookup`. Total now 21 Python tools + 1 shared lib.
+- Critical-review fixes: TLS version enumeration in `tls_inspect`; Shannon-entropy gate on `secrets_scan` generic patterns; `--user-agent` flag added to all 12 networked tools (via `_lib.add_user_agent_arg`); redirect-chain detection in `check_headers`; DNS-burst jitter in `subfinder`.
+- Bugs found and fixed during the cycle: missing `urllib.parse` import in `http_methods`; tech_fingerprint generator-meta regex was wrong (didn't match Jekyll/Hugo); `_lib.stdin_or_arg` empty-input handling; cert fetch failed on TLS 1.0-only servers (added SECLEVEL=0); `global USER_AGENT` placement was after first read in 12 tools (SyntaxError); `secrets_scan` Optional-import ordering hack cleaned up; `recon` issue-label rendering showed long risk text instead of compact header+status; `header_diff` argparse couldn't accept flags after the subcommand; `tls_inspect` was using a now-deprecated private API on macOS — wrapped in defensive error handler.
+
+**State at the end:** Toolchain is consistent (shared `_lib`, uniform CLI conventions, documented), more tools, and the worst quality issues found are fixed. Site itself unchanged.
 
 ---
 
@@ -45,23 +56,33 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (11 tools in `tools/`)
+### Toolchain (21 tools in `tools/` + shared `_lib.py`)
 
-All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, exit codes 0/1/2/3.
+All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
 | Tool | What it does |
 |------|--------------|
 | `new_writeup.py` | Generate writeup skeleton (Chirpy frontmatter + standard sections) |
-| `check_headers.py` | Analyze 9 security headers + info disclosure, with risk/fix report |
+| `check_headers.py` | 9 security headers + info disclosure + redirect-chain detection |
 | `multidecode.py` | Auto-detect Base64/Base32/hex/URL/binary/ROT13 + `--cascade` |
 | `robots_check.py` | Parse `/robots.txt` + `/sitemap.xml`, highlight interesting paths |
 | `hashid.py` | Identify ~25 hash types with confidence + hashcat modes |
-| `tls_inspect.py` | TLS cert info, flag expired/weak/self-signed/host-mismatch |
+| `tls_inspect.py` | Cert info + accepted-TLS-version enumeration + weak-version flags |
 | `jwt_inspect.py` | Decode JWTs, flag `alg:none`/unknown alg/expired/nbf-future/missing claims |
-| `cors_check.py` | Probe with attacker/null/prefix/suffix origins, send GET + OPTIONS preflight |
-| `subfinder.py` | crt.sh + wordlist + parallel DNS resolution |
+| `cors_check.py` | Probes with attacker/null/prefix/suffix origins, GET + OPTIONS preflight |
+| `subfinder.py` | crt.sh + wordlist + rate-limited parallel DNS resolution |
 | `htb_stats.py` | HackTheBox badge markdown; profile stats with `HTB_TOKEN` |
 | `header_diff.py` | Snapshot + diff security headers over time |
+| `http_methods.py` | Test allowed HTTP methods, flag TRACE/CONNECT/destructive 2xx |
+| `cookie_check.py` | `Set-Cookie` security-flag audit (HttpOnly/Secure/SameSite/Domain) |
+| `dns_records.py` | Raw-stdlib DNS (UDP+TCP) for A/AAAA/MX/NS/TXT/CAA + SPF/DMARC audit |
+| `secrets_scan.py` | Filesystem + git-history scan for committed credentials (entropy-gated) |
+| `recon.py` | Orchestrator: composes subfinder + check_headers + tls_inspect + cookie_check + dns_records → single Markdown report |
+| `whois_check.py` | WHOIS query (TCP/43) with parsed fields; flag expired / no DNSSEC |
+| `wayback_check.py` | Wayback Machine closest snapshot / timeline / live-vs-archived diff |
+| `tech_fingerprint.py` | Identify web stack (server, CDN, language, framework, CMS, JS lib, analytics) |
+| `password_strength.py` | Entropy + HIBP k-anonymity check (full password never leaves machine) |
+| `cve_lookup.py` | Fetch CVE details from NVD v2 API |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.
