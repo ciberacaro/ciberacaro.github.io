@@ -47,6 +47,8 @@ LANGS = ("en", "pt")
 LABELS = {
     "en": {
         "url": "URL",
+        "final_url": "Final URL",
+        "redirect_chain": "Redirect chain",
         "status": "Status",
         "security_headers": "Security headers",
         "score": "Score",
@@ -55,6 +57,10 @@ LABELS = {
         "no_issues": "No issues — every checked header is in good shape.",
         "risk_label": "Risk:",
         "fix_label": "Fix: ",
+        "redirect_note": (
+            "Note: the URL above redirected — the headers below describe the FINAL response, "
+            "not the original URL. The original may have weaker headers (or none)."
+        ),
         "err_scheme": "error: URL must start with http:// or https://",
         "err_unreachable": "error: could not reach",
         "err_timeout": "error: timeout after",
@@ -63,6 +69,8 @@ LABELS = {
     },
     "pt": {
         "url": "URL",
+        "final_url": "URL final",
+        "redirect_chain": "Cadeia de redirects",
         "status": "Estado",
         "security_headers": "Headers de segurança",
         "score": "Pontuação",
@@ -71,6 +79,10 @@ LABELS = {
         "no_issues": "Sem problemas — todos os headers verificados estão em ordem.",
         "risk_label": "Risco:",
         "fix_label": "Correção: ",
+        "redirect_note": (
+            "Nota: o URL acima foi redirecionado — os headers abaixo descrevem a resposta FINAL, "
+            "não o URL original. O URL original pode ter headers mais fracos (ou nenhuns)."
+        ),
         "err_scheme": "erro: URL tem de começar por http:// ou https://",
         "err_unreachable": "erro: não foi possível alcançar",
         "err_timeout": "erro: timeout após",
@@ -357,19 +369,45 @@ def _normalize(headers_obj) -> dict[str, str]:
     return {k.lower(): v for k, v in headers_obj.items()} if headers_obj else {}
 
 
+class _RedirectTracker(urllib.request.HTTPRedirectHandler):
+    """HTTP redirect handler that records the chain of intermediate URLs.
+
+    Default urllib follows redirects silently. We need visibility because
+    the *original* URL might have a weak header configuration that gets
+    hidden behind a strong-headers final destination.
+    """
+    def __init__(self) -> None:
+        super().__init__()
+        self.chain: list[tuple[int, str, str]] = []  # (status, from_url, to_url)
+
+    def http_error_301(self, req, fp, code, msg, headers):
+        new_url = headers.get("Location") or headers.get("URI") or ""
+        self.chain.append((code, req.full_url, new_url))
+        return super().http_error_301(req, fp, code, msg, headers)
+
+    http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
+
+
 def fetch_headers(url: str, timeout: float = 10.0):
-    """Fetch URL and return (final_url, status_code, headers).
+    """Fetch URL and return (final_url, status_code, headers, redirect_chain).
 
     Headers are keyed by lowercase name (HTTP headers are case-insensitive
     per RFC 7230 §3.2). All check_* functions must look up lowercase keys.
+
+    redirect_chain is a list of (status, from_url, to_url) tuples, empty
+    if the response came directly from the requested URL.
     """
+    tracker = _RedirectTracker()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=build_ssl_context()),
+        tracker,
+    )
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
-    ctx = build_ssl_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.geturl(), resp.status, _normalize(resp.headers)
+        with opener.open(req, timeout=timeout) as resp:
+            return resp.geturl(), resp.status, _normalize(resp.headers), tracker.chain
     except urllib.error.HTTPError as e:
-        return e.geturl(), e.code, _normalize(e.headers)
+        return e.geturl(), e.code, _normalize(e.headers), tracker.chain
 
 
 def check_hsts(headers: dict, lang: str) -> Finding:
@@ -528,13 +566,23 @@ def colorize(text: str, key: str, use_color: bool) -> str:
 
 
 def print_human_report(
-    url: str, status: int, findings: list[Finding], use_color: bool, lang: str
+    url: str, status: int, findings: list[Finding], use_color: bool, lang: str,
+    requested_url: str = "", redirect_chain: list[tuple[int, str, str]] | None = None,
 ) -> None:
     L = LABELS[lang]
     bold = lambda s: f"{ANSI['bold']}{s}{ANSI['reset']}" if use_color else s
     dim = lambda s: f"{ANSI['dim']}{s}{ANSI['reset']}" if use_color else s
 
-    print(f"\n{bold(L['url'] + ':')}    {url}")
+    if requested_url and requested_url != url:
+        print(f"\n{bold(L['url'] + ':')}        {requested_url}")
+        print(f"{bold(L['final_url'] + ':')}  {url}")
+        if redirect_chain:
+            print(f"\n{bold(L['redirect_chain'] + ':')}")
+            for code, src, dst in redirect_chain:
+                print(f"  {code}  {src}  →  {dst}")
+        print(f"\n{colorize(L['redirect_note'], WEAK, use_color)}")
+    else:
+        print(f"\n{bold(L['url'] + ':')}    {url}")
     print(f"{bold(L['status'] + ':')} {status}\n")
 
     print(bold(L["security_headers"] + ":"))
@@ -617,8 +665,9 @@ def main() -> int:
         print(f"{L['err_scheme']} ({L['got']} {args.url!r})", file=sys.stderr)
         return 2
 
+    requested_url = args.url
     try:
-        final_url, status, headers = fetch_headers(args.url, timeout=args.timeout)
+        final_url, status, headers, redirect_chain = fetch_headers(args.url, timeout=args.timeout)
     except urllib.error.URLError as e:
         print(f"{L['err_unreachable']} {args.url} — {e.reason}", file=sys.stderr)
         return 3
@@ -650,16 +699,19 @@ def main() -> int:
                 entry["fix"] = info.get("fix")
             findings_out.append(entry)
         out = {
+            "requested_url": requested_url,
             "url": final_url,
             "status": status,
             "lang": args.lang,
+            "redirect_chain": [{"status": c, "from": s, "to": d} for c, s, d in redirect_chain],
             "findings": findings_out,
             "issues_count": sum(1 for f in findings if f.status in (MISSING, WEAK)),
         }
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
         use_color = sys.stdout.isatty() and not args.no_color
-        print_human_report(final_url, status, findings, use_color, args.lang)
+        print_human_report(final_url, status, findings, use_color, args.lang,
+                           requested_url=requested_url, redirect_chain=redirect_chain)
 
     has_missing = any(f.status == MISSING for f in findings)
     return 1 if has_missing else 0
