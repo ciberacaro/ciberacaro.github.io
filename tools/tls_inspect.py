@@ -212,13 +212,18 @@ def probe_tls_version(host: str, port: int, version_attr: str, timeout: float) -
 def fetch_cert(host: str, port: int, timeout: float = 10.0) -> tuple[dict, str, str, bytes]:
     """Return (cert_dict, tls_version, cipher_name, der_bytes).
 
-    Uses CERT_NONE so we can inspect even invalid/self-signed/expired certs.
-    Under CERT_NONE, getpeercert() returns an empty dict — we parse the DER
-    ourselves by writing it to a PEM file and using ssl._test_decode_cert.
+    Permissive by design: CERT_NONE so even invalid/self-signed/expired certs
+    are inspectable, and SECLEVEL=0 so legacy-only servers (TLS 1.0/1.1) can
+    still hand us their certificate. Without that, modern OpenSSL excludes
+    legacy ciphers by default and the handshake refuses to start.
     """
-    ctx = ssl.create_default_context()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    try:
+        ctx.set_ciphers("ALL:@SECLEVEL=0")
+    except ssl.SSLError:
+        pass
     with socket.create_connection((host, port), timeout=timeout) as sock:
         with ctx.wrap_socket(sock, server_hostname=host) as ssock:
             cert_der = ssock.getpeercert(binary_form=True)
