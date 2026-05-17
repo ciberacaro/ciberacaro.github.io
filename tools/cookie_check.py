@@ -202,12 +202,15 @@ def print_human(target: str, scheme: str, cookies: list[Cookie], issues: list[Is
         print(f"  {L['no_cookies']}\n")
         return
 
+    # Canonical casing per RFC / browser devtools convention
+    canonical = {"secure": "Secure", "httponly": "HttpOnly"}
+
     print(f"{L['cookies_found']} ({len(cookies)}):")
     for c in cookies:
         flags = []
         for key in ("secure", "httponly"):
             if c.attributes.get(key):
-                flags.append(key.capitalize())
+                flags.append(canonical[key])
         if "samesite" in c.attributes:
             flags.append(f"SameSite={c.attributes['samesite']}")
         if "domain" in c.attributes:
