@@ -85,11 +85,15 @@ SIGNATURES = (
     {"name": "Java EE / Servlet", "category": "Framework", "cookie_re": r"^JSESSIONID$", "header_re": r"(?i)^server:.*tomcat|^server:.*jetty"},
     # ---- CMS
     {"name": "WordPress", "category": "CMS",
-     "html_re": r"/wp-(?:content|includes|json)/|<meta[^>]+generator['\"]?\s*=\s*['\"]?WordPress",
+     "html_re": r"/wp-(?:content|includes|json)/|<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]WordPress",
      "cookie_re": r"^wordpress_"},
-    {"name": "Drupal", "category": "CMS", "header_re": r"(?i)^x-generator:.*drupal", "html_re": r"<meta[^>]+content=['\"]Drupal"},
-    {"name": "Joomla", "category": "CMS", "html_re": r"<meta[^>]+content=['\"]Joomla"},
-    {"name": "Ghost", "category": "CMS", "html_re": r"<meta[^>]+content=['\"]Ghost", "header_re": r"(?i)^x-ghost-cache"},
+    {"name": "Drupal", "category": "CMS", "header_re": r"(?i)^x-generator:.*drupal",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Drupal"},
+    {"name": "Joomla", "category": "CMS",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Joomla"},
+    {"name": "Ghost", "category": "CMS",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Ghost",
+     "header_re": r"(?i)^x-ghost-cache"},
     # ---- JS frameworks
     {"name": "React", "category": "JS", "html_re": r"data-reactroot|/static/js/main\.[a-f0-9]+\.js|React\.createElement"},
     {"name": "Vue.js", "category": "JS", "html_re": r"data-v-[a-f0-9]{8}|\bVue\.config\.|new Vue\("},
@@ -106,8 +110,10 @@ SIGNATURES = (
     {"name": "WooCommerce", "category": "E-commerce", "html_re": r"woocommerce-loop|woocommerce/assets/"},
     {"name": "Magento", "category": "E-commerce", "cookie_re": r"frontend(_cid)?=", "html_re": r"Mage\.Cookies|/skin/frontend/"},
     # ---- Static-site generators (often inferred from HTML hints)
-    {"name": "Jekyll", "category": "Generator", "html_re": r"<meta[^>]+generator['\"]?\s*=\s*['\"]?Jekyll"},
-    {"name": "Hugo", "category": "Generator", "html_re": r"<meta[^>]+generator['\"]?\s*=\s*['\"]?Hugo"},
+    {"name": "Jekyll", "category": "Generator",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Jekyll"},
+    {"name": "Hugo", "category": "Generator",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Hugo"},
     {"name": "Gatsby", "category": "Generator", "html_re": r"<script[^>]+/page-data/|gatsby-link/"},
     # ---- Analytics
     {"name": "Google Analytics", "category": "Analytics", "html_re": r"www\.googletagmanager\.com/gtag/js|google-analytics\.com/(?:analytics|ga)\.js"},
