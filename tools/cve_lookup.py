@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("cve_lookup.py")
 LANGS = ("en", "pt")
@@ -204,12 +204,15 @@ def print_human(info: CveInfo, lang: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch CVE details from the NVD database.")
     add_version_arg(parser, "cve_lookup.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("cve_id", help="CVE identifier like CVE-2021-44228. Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--timeout", type=float, default=30.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
 
     cve_id = stdin_or_arg(args.cve_id).strip().upper()
     if not re.fullmatch(r"CVE-\d{4}-\d{4,7}", cve_id):

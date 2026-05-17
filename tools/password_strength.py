@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg
 
 USER_AGENT = make_user_agent("password_strength.py")
 LANGS = ("en", "pt")
@@ -273,6 +273,7 @@ def main() -> int:
         description="Password strength + Have I Been Pwned check (k-anonymity).",
     )
     add_version_arg(parser, "password_strength.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--stdin", action="store_true",
                         help="Read password from stdin instead of prompting (no echo).")
@@ -281,6 +282,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
 
     if args.stdin:
         password = sys.stdin.readline().rstrip("\n")

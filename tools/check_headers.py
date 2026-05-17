@@ -21,7 +21,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("check_headers.py")
 
@@ -590,6 +590,7 @@ def main() -> int:
         description="Check security-relevant HTTP response headers of a URL.",
     )
     add_version_arg(parser, "check_headers.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("url", help="Target URL (must include scheme: http:// or https://). Use '-' to read from stdin.")
     parser.add_argument(
         "--lang",
@@ -609,6 +610,8 @@ def main() -> int:
     args = parser.parse_args()
 
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
     args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):

@@ -86,3 +86,17 @@ def add_version_arg(parser: argparse.ArgumentParser, tool_name: str) -> None:
         action="version",
         version=f"{tool_name} {TOOLS_VERSION}",
     )
+
+
+def add_user_agent_arg(parser: argparse.ArgumentParser, default: str) -> None:
+    """Register a `--user-agent` override.
+
+    Useful for evading WAFs that block scripted clients, or for testing
+    how the target responds to different UA strings.
+    """
+    parser.add_argument(
+        "--user-agent",
+        default=default,
+        metavar="STRING",
+        help="Override the User-Agent header (default: the tool's own UA).",
+    )

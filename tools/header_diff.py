@@ -28,7 +28,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("header_diff.py")
 LANGS = ("en", "pt")
@@ -232,12 +232,15 @@ def main() -> int:
         parents=[common],
     )
     add_version_arg(parser, "header_diff.py")
+    add_user_agent_arg(parser, USER_AGENT)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sp_snap = sub.add_parser("snapshot", help="Save current header state as a snapshot", parents=[common])
     sp_snap.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     sp_diff = sub.add_parser("diff", help="Diff current state against last snapshot", parents=[common])
     sp_diff.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     args = parser.parse_args()
+    global USER_AGENT
+    USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)
 

@@ -22,7 +22,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("subfinder.py")
 LANGS = ("en", "pt")
@@ -169,6 +169,7 @@ def print_human(domain: str, resolved: list[ResolvedHost], skipped: int, lang: s
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enumerate subdomains via crt.sh + DNS wordlist brute-force.")
     add_version_arg(parser, "subfinder.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("domain", help="Base domain, e.g. example.com. Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--wordlist", help="Path to a wordlist (default: built-in 27 entries)")
@@ -179,6 +180,8 @@ def main() -> int:
     parser.add_argument("--skip-bruteforce", action="store_true", help="Skip wordlist brute-force, only crt.sh")
     args = parser.parse_args()
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
 
     domain = stdin_or_arg(args.domain).strip().lower()
     if not re.fullmatch(r"[a-z0-9.\-]+\.[a-z]{2,}", domain):

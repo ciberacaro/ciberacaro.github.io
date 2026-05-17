@@ -28,7 +28,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("http_methods.py")
 LANGS = ("en", "pt")
@@ -310,12 +310,15 @@ def print_human(url: str, results: list[MethodResult], issues: list[Issue], lang
 def main() -> int:
     parser = argparse.ArgumentParser(description="Test which HTTP methods an endpoint allows.")
     add_version_arg(parser, "http_methods.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("url", help="Target URL (http:// or https://). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)
     if not re.match(r"^https?://", args.url):

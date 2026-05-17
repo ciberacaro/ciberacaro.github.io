@@ -24,7 +24,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
 
 USER_AGENT = make_user_agent("htb_stats.py")
 LANGS = ("en", "pt")
@@ -137,6 +137,7 @@ def main() -> int:
         description="Generate HackTheBox profile badge markdown; optional stats fetch with API token.",
     )
     add_version_arg(parser, "htb_stats.py")
+    add_user_agent_arg(parser, USER_AGENT)
     parser.add_argument("user_id", help="HTB user ID (numeric, from the profile URL). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--token", help="HTB API bearer token (or set HTB_TOKEN env var)")
@@ -145,6 +146,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    global USER_AGENT
+    USER_AGENT = args.user_agent
     args.user_id = stdin_or_arg(args.user_id)
 
     if not re.fullmatch(r"\d+", args.user_id):
