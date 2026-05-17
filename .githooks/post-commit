@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Reminds you to re-upload context files to the claude.ai Project when they
+# change. Activated via `git config core.hooksPath .githooks` (run once
+# per clone; the project_sync.sh script does this automatically).
+
+set -e
+
+TRACKED_FILES=("CLAUDE.md" "SESSION_LOG.md")
+
+# Files changed in the just-made commit
+CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+
+NEEDS_SYNC=()
+for f in "${TRACKED_FILES[@]}"; do
+  if echo "$CHANGED" | grep -qx "$f"; then
+    NEEDS_SYNC+=("$f")
+  fi
+done
+
+if [ ${#NEEDS_SYNC[@]} -eq 0 ]; then
+  exit 0
+fi
+
+cat <<EOF
+
+────────────────────────────────────────────────────────────────────
+  claude.ai Project sync reminder
+────────────────────────────────────────────────────────────────────
+
+  The following Project-knowledge file(s) changed in this commit:
+
+EOF
+
+for f in "${NEEDS_SYNC[@]}"; do
+  echo "    • $f"
+done
+
+cat <<EOF
+
+  To keep the claude.ai 'Cybersecurity Portfolio' Project in sync
+  (so your mobile/web Claude chat sees the new content), re-upload
+  via: https://claude.ai/projects  →  Cybersecurity Portfolio  →
+       Project knowledge  →  remove old version, add new file.
+
+  Raw URLs (push first if you want the latest content):
+EOF
+
+for f in "${NEEDS_SYNC[@]}"; do
+  echo "    https://raw.githubusercontent.com/ciberacaro/ciberacaro.github.io/main/$f"
+done
+
+cat <<EOF
+
+  Or run:  tools/project_sync.sh
+────────────────────────────────────────────────────────────────────
+EOF

@@ -193,6 +193,21 @@ tools/header_diff.py diff     https://ciberacaro.github.io --lang pt --json
 
 `.header_snapshots/` is gitignored — it's local state, not artifact.
 
+## `project_sync.sh`
+
+Helper for keeping the claude.ai Project knowledge in sync with this repo. Run it after editing `CLAUDE.md` or `SESSION_LOG.md`. It:
+
+- Prints current sizes and last-modified times for both files.
+- Shows the raw GitHub URLs to copy or re-upload.
+- Warns when there are unpushed commits touching either file (so you don't upload a stale version).
+- On first run per clone, enables the `.githooks/` directory so the `post-commit` hook fires automatically next time these files change.
+
+```bash
+tools/project_sync.sh
+```
+
+The post-commit hook also prints the reminder automatically — running this script manually is just for when you forgot, or to see the URLs without making a commit.
+
 ## `run.sh` / `test.sh`
 
 Local Jekyll preview and build-test scripts shipped with the Chirpy starter. Useful for previewing changes locally before pushing.
