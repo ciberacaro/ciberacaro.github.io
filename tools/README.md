@@ -288,6 +288,18 @@ echo "hunter2" | tools/password_strength.py --stdin
 tools/password_strength.py --stdin --no-breach --lang pt
 ```
 
+## `xor_crack.py`
+
+Recover plaintext from XOR-encrypted ciphertext. Single-byte XOR is brute-forced over all 256 keys using English letter-frequency scoring. Multi-byte XOR uses Index-of-Coincidence to guess the key length, then brute-forces each byte position independently.
+
+```bash
+tools/xor_crack.py 1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736
+tools/xor_crack.py <hex> --key-len 3                # known key length
+tools/xor_crack.py <hex> --key 6b6579               # decrypt with given key
+cat cipher.bin | tools/xor_crack.py - --raw         # binary input via stdin
+tools/xor_crack.py <hex> --lang pt --json
+```
+
 ## `cve_lookup.py`
 
 Fetch CVE details from the NVD v2 API. Reports description, CVSS v3 / v2 scores and vectors, CWE weaknesses, affected CPEs, and references with their NVD tags.
