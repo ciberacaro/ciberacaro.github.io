@@ -26,3 +26,4 @@ package-lock.json
 _sass/vendors
 assets/js/dist
 .header_snapshots/
+__pycache__/
