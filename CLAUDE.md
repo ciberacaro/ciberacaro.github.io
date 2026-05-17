@@ -73,7 +73,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - <https://xct.github.io> — beginner-to-pro trajectory
 - <https://m0chan.github.io> — GitHub Pages + Jekyll, good structure
 
-## Current build state (last updated 2026-05-16)
+## Current build state (last updated 2026-05-18)
 
 - ✅ Repo forked from `cotes2020/chirpy-starter`
 - ✅ GitHub Pages enabled (source: GitHub Actions)
