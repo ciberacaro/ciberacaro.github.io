@@ -26,10 +26,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -140,6 +142,21 @@ SKIP_EXTS = {".pyc", ".pyo", ".class", ".jar", ".dll", ".so", ".dylib",
 
 MAX_FILE_BYTES = 1_000_000  # 1 MB — anything larger almost certainly isn't source code
 
+# Patterns where we apply a Shannon-entropy gate to the captured value before
+# reporting a hit. Reduces false positives on patterns that match anything
+# that *looks* like a token (e.g. generic api_key='...' assignments).
+ENTROPY_GATED_PATTERNS = {"generic_secret_assign"}
+ENTROPY_MIN_BITS_PER_CHAR = 3.5  # ~empirical floor between "real secret" and "example string"
+
+
+def shannon_entropy(text: str) -> float:
+    """Bits per character. Random hex ≈ 4.0, base64 ≈ 6.0, English prose ≈ 2.0."""
+    if not text:
+        return 0.0
+    counts = Counter(text)
+    length = len(text)
+    return -sum((c / length) * math.log2(c / length) for c in counts.values())
+
 
 @dataclass
 class Finding:
@@ -180,7 +197,13 @@ def scan_text(text: str, location: str) -> list[Finding]:
     for name, pattern, desc in PATTERNS:
         for m in re.finditer(pattern, text):
             full = m.group(0)
-            # Compute 1-based line number
+            # For gated patterns, apply Shannon-entropy gate to the captured
+            # *value* (first capture group if present, otherwise the whole match).
+            # Filters out e.g. api_key='example' or api_key='changeme1234'.
+            if name in ENTROPY_GATED_PATTERNS:
+                captured = m.group(1) if m.groups() else full
+                if shannon_entropy(captured) < ENTROPY_MIN_BITS_PER_CHAR:
+                    continue
             line_no = text[:m.start()].count("\n") + 1
             out.append(Finding(
                 pattern_name=name,
