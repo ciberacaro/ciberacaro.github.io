@@ -101,6 +101,24 @@ ISSUE_TEXT = {
         "pt": ("Cookie '{}' tem Domain={} — escopo mais largo do que o host da resposta",
                "Um Domain alargado partilha o cookie com todos os subdomínios, incluindo os que não controlas. Define Domain apenas quando precisas mesmo de acesso cross-subdomain."),
     },
+    "host_prefix_violation": {
+        "en": ("Cookie '{}' uses '__Host-' prefix but violates its rules",
+               "Cookies with '__Host-' prefix MUST have Secure, MUST have Path=/, and MUST NOT have Domain set (RFC 6265bis). Otherwise browsers will reject them."),
+        "pt": ("Cookie '{}' usa o prefixo '__Host-' mas viola as suas regras",
+               "Cookies com prefixo '__Host-' TÊM de ter Secure, TÊM de ter Path=/, e NÃO PODEM ter Domain definido (RFC 6265bis). Caso contrário os browsers rejeitam-nos."),
+    },
+    "secure_prefix_violation": {
+        "en": ("Cookie '{}' uses '__Secure-' prefix but is not Secure",
+               "Cookies with '__Secure-' prefix MUST have the Secure flag. Browsers reject the cookie otherwise."),
+        "pt": ("Cookie '{}' usa o prefixo '__Secure-' mas não tem flag Secure",
+               "Cookies com prefixo '__Secure-' TÊM de ter a flag Secure. Os browsers rejeitam o cookie caso contrário."),
+    },
+    "long_expiry": {
+        "en": ("Cookie '{}' has expiry longer than 1 year",
+               "Long-lived cookies are persistent tracking surface. Set Max-Age ≤ 1 year for session-like cookies, ≤ 30 days where possible."),
+        "pt": ("Cookie '{}' tem expiração superior a 1 ano",
+               "Cookies de longa duração são uma superfície de tracking persistente. Define Max-Age ≤ 1 ano para cookies tipo sessão, ≤ 30 dias quando possível."),
+    },
 }
 
 
@@ -191,6 +209,42 @@ def evaluate(cookies: list[Cookie], target_host: str, scheme: str, lang: str) ->
             if target_host.endswith("." + domain_str):
                 t = ISSUE_TEXT["domain_too_broad"][lang]
                 issues.append(Issue("domain_too_broad", t[0].format(c.name, domain_str), t[0].format(c.name, domain_str), t[1]))
+
+        # RFC 6265bis cookie prefixes
+        if c.name.startswith("__Host-"):
+            path = attrs.get("path") if isinstance(attrs.get("path"), str) else ""
+            if not has_secure or path != "/" or domain_str:
+                t = ISSUE_TEXT["host_prefix_violation"][lang]
+                issues.append(Issue("host_prefix_violation", t[0].format(c.name), t[0].format(c.name), t[1]))
+        elif c.name.startswith("__Secure-"):
+            if not has_secure:
+                t = ISSUE_TEXT["secure_prefix_violation"][lang]
+                issues.append(Issue("secure_prefix_violation", t[0].format(c.name), t[0].format(c.name), t[1]))
+
+        # Long expiry / Max-Age (> 1 year)
+        max_age_raw = attrs.get("max-age")
+        if isinstance(max_age_raw, str):
+            try:
+                if int(max_age_raw) > 365 * 24 * 3600:
+                    t = ISSUE_TEXT["long_expiry"][lang]
+                    issues.append(Issue("long_expiry", t[0].format(c.name), t[0].format(c.name), t[1]))
+                    # Skip the Expires check below since Max-Age already triggered it.
+                    continue
+            except ValueError:
+                pass
+        expires_raw = attrs.get("expires")
+        if isinstance(expires_raw, str):
+            # Try common cookie Expires format
+            from datetime import datetime, timezone
+            for fmt in ("%a, %d %b %Y %H:%M:%S GMT", "%a, %d-%b-%Y %H:%M:%S GMT"):
+                try:
+                    dt = datetime.strptime(expires_raw.strip(), fmt).replace(tzinfo=timezone.utc)
+                    if (dt - datetime.now(timezone.utc)).days > 365:
+                        t = ISSUE_TEXT["long_expiry"][lang]
+                        issues.append(Issue("long_expiry", t[0].format(c.name), t[0].format(c.name), t[1]))
+                    break
+                except ValueError:
+                    continue
 
     return issues
 
