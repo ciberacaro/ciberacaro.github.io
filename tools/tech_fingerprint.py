@@ -124,9 +124,24 @@ SIGNATURES = (
     # ---- Frameworks (back end, harder to pin)
     {"name": "Laravel", "category": "Framework", "cookie_re": r"^laravel_session$|^XSRF-TOKEN$"},
     {"name": "Django", "category": "Framework", "cookie_re": r"^csrftoken$|^sessionid$"},
+    # ---- WAFs (web application firewalls)
+    {"name": "Cloudflare WAF", "category": "WAF",
+     "header_re": r"(?i)^cf-ray|^server:.*cloudflare"},
+    {"name": "AWS WAF", "category": "WAF",
+     "header_re": r"(?i)^x-amzn-(?:requestid|trace-id)|^x-amz-cf-id"},
+    {"name": "Sucuri", "category": "WAF",
+     "header_re": r"(?i)^server:.*sucuri|^x-sucuri-id"},
+    {"name": "Imperva (Incapsula)", "category": "WAF",
+     "header_re": r"(?i)^x-iinfo", "cookie_re": r"^incap_ses_|^visid_incap_"},
+    {"name": "ModSecurity", "category": "WAF",
+     "header_re": r"(?i)^server:.*mod_security"},
+    {"name": "Akamai WAF (Kona)", "category": "WAF",
+     "header_re": r"(?i)^x-akamai-edgescape|^server:.*akamaiGHost"},
+    {"name": "F5 BIG-IP ASM", "category": "WAF",
+     "cookie_re": r"^TS[0-9a-f]{8}$|^BIGipServer", "header_re": r"(?i)^server:.*BIG-IP"},
 )
 
-CATEGORY_ORDER = ["Server", "CDN", "Cache", "Language", "Framework", "CMS",
+CATEGORY_ORDER = ["Server", "CDN", "WAF", "Cache", "Language", "Framework", "CMS",
                   "E-commerce", "Generator", "JS", "TagManager", "Analytics", "Other"]
 
 
