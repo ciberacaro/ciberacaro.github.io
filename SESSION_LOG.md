@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18 (Session 3).
+Last updated: 2026-05-18 (Session 3 + portability reference).
 
 ---
 
@@ -153,30 +153,93 @@ Roughly in order of impact:
 
 ---
 
-## How to resume
+## How to resume — context portability across machines
 
-### From the same Mac
+The history of decisions lives in three layers, ranked by importance:
+
+1. **`SESSION_LOG.md`** (this file) — chronological "why" of each decision.
+2. **`CLAUDE.md`** — current state, conventions, working preferences. Auto-loaded by Claude Code when started in this directory.
+3. **`git log`** — granular per-commit history with detailed messages.
+
+All three are versioned in this public GitHub repo, so they never disappear.
+
+### Scenario A — Claude Code on the same Mac
 
 ```bash
 cd ~/Projects/ciberacaro.github.io
 claude          # picks up CLAUDE.md + .claude/settings.json automatically
 ```
 
-### From a fresh machine
+### Scenario B — Claude Code on a fresh machine
 
 ```bash
+# 1. Clone
 git clone https://github.com/ciberacaro/ciberacaro.github.io.git
 cd ciberacaro.github.io
-# Install gh CLI for that platform, then:
+
+# 2. Read the context (3 files in order of relevance)
+cat SESSION_LOG.md                       # the why
+cat CLAUDE.md                            # the current state
+git --no-pager log --oneline             # the granular history
+
+# 3. One-time setup for this machine
+# Install gh CLI for the OS, then:
 gh auth login
 git config --global user.name "Luís Soares"
-git config --global user.email "<your noreply email>"
-claude          # picks up CLAUDE.md
+git config --global user.email "<your GitHub noreply email>"
+
+# 4. Activate the claude.ai sync reminder hook
+tools/project_sync.sh                    # idempotent; also prints sync status
+
+# 5. Start Claude Code there
+claude                                   # auto-loads CLAUDE.md
 ```
 
-### From mobile (Claude Android app)
+### Scenario C — claude.ai (web or Android app)
 
-Sign in with the same Anthropic account as `claude.ai`. Open the `Cybersecurity Portfolio` Project (once created). The CLAUDE.md and this SESSION_LOG.md, uploaded as Project knowledge, give the chat the same context. You can review writeup drafts, brainstorm, ask conceptual questions — but cannot edit the repo from there.
+The chat interface can't access local files. Use the `Cybersecurity Portfolio` Project, which has `CLAUDE.md` and `SESSION_LOG.md` uploaded as Project knowledge. **The Project knowledge does NOT auto-sync from GitHub** — re-upload is manual. The git hook installed in `.githooks/post-commit` reminds you whenever a commit touches one of those files.
+
+Raw URLs ready to copy / paste / upload:
+
+- <https://raw.githubusercontent.com/ciberacaro/ciberacaro.github.io/main/CLAUDE.md>
+- <https://raw.githubusercontent.com/ciberacaro/ciberacaro.github.io/main/SESSION_LOG.md>
+
+The Android app and claude.ai web share the same Anthropic account, so the Project is automatically synced between them. No extra work on the app side beyond logging in.
+
+### Scenario D — Mid-session context injection (any chat)
+
+If you're already mid-conversation in any Claude interface and the Project might be stale, paste the raw content of both files inline:
+
+> *"Here's the current state of my portfolio. Please read it and confirm:*
+> *CLAUDE.md: `<paste raw content>`*
+> *SESSION_LOG.md: `<paste raw content>`"*
+
+Works as a one-shot context injection. Not a substitute for a well-maintained Project, but useful for one-off conversations.
+
+### Diagnostic — am I up to date?
+
+On any machine with the repo cloned:
+
+```bash
+git fetch origin && git status -sb
+# expected: '## main...origin/main' with no 'behind' / 'ahead'
+
+git --no-pager log -1 --format="%h %ad %s" --date=iso
+# the date is the timestamp of the most recent change
+
+git config --get core.hooksPath
+# expected: '.githooks' if the project_sync.sh hook is active
+```
+
+On claude.ai: check the "last modified" timestamp on the Project knowledge files vs the timestamp of the latest commit at <https://github.com/ciberacaro/ciberacaro.github.io/commits/main>. Large gap → re-upload.
+
+### What's NOT portable (and doesn't need to be)
+
+| Thing | Why it doesn't matter |
+|---|---|
+| Raw transcript of a Claude Code session | Long and noisy. `SESSION_LOG.md` is the distilled version that survives |
+| Local `~/.claude/projects/.../memory/` files | Per-machine preferences; can be re-explained or derived from `CLAUDE.md` |
+| Task lists (`#1..#N`) from a specific session | Per-session; the *outcomes* are versioned in the repo |
 
 ---
 
