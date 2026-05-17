@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18.
+Last updated: 2026-05-18 (Session 3).
 
 ---
 
@@ -13,6 +13,22 @@ Last updated: 2026-05-18.
 **Goal at the start:** Build a cybersecurity portfolio from scratch — Luís is transitioning into the field, targets pentesting/red team, has ~10-20 hours/week.
 
 **Final outcome:** Site live with bilingual About, 11 working CLI security tools, full local + remote tooling setup, project context portable across machines.
+
+### Session 3 — 2026-05-18 (branch reconciliation)
+
+**Goal at the start:** Investigate stale `claude/check-project-status-KMDqo` branch (created by a parallel session on another PC that didn't have CLAUDE.md context). Decide what to merge.
+
+**What was done:**
+- Recovered `xor_crack.py` from the branch (XOR ciphertext recovery via frequency analysis) into main as a new tool.
+- Reviewed the branch's 3 alternative tools (`tech_detect`, `cookie_audit`, `dns_enum`). Did not adopt them as parallel files — instead ported their unique features into the existing tools:
+  - `dns_records.py` ← AXFR zone-transfer probe, CNAME and SOA queries, `--no-axfr` flag.
+  - `cookie_check.py` ← `__Host-` and `__Secure-` prefix violation checks (RFC 6265bis), long-expiry warning (>1 year).
+  - `tech_fingerprint.py` ← new WAF category with 7 signatures (Cloudflare WAF, AWS WAF, Sucuri, Imperva, ModSecurity, Akamai Kona, F5 BIG-IP ASM).
+- The branch had also DELETED many of our tools (recon, secrets_scan, wayback_check, etc.) — those deletions ignored entirely; main is the canonical state.
+- The branch's modifications to common files were OLDER than main's Session 2 work — nothing useful to bring back.
+- Deleted the stale branch on origin once everything valuable was on main. Kept a local tag `stale-branch-tip` for one session as a safety net (delete later).
+
+**Lesson learned, documented in CLAUDE.md and feedback memory:** Parallel sessions without CLAUDE.md context are dangerous. The mitigation is the claude.ai Project — re-upload CLAUDE.md + SESSION_LOG.md whenever they change so every device's chat sees the same state.
 
 ### Session 2 — 2026-05-17 to 2026-05-18
 
@@ -56,7 +72,7 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (21 tools in `tools/` + shared `_lib.py`)
+### Toolchain (22 tools in `tools/` + shared `_lib.py`)
 
 All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
@@ -83,6 +99,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `tech_fingerprint.py` | Identify web stack (server, CDN, language, framework, CMS, JS lib, analytics) |
 | `password_strength.py` | Entropy + HIBP k-anonymity check (full password never leaves machine) |
 | `cve_lookup.py` | Fetch CVE details from NVD v2 API |
+| `xor_crack.py` | XOR ciphertext recovery (single + multi-byte via frequency analysis) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.

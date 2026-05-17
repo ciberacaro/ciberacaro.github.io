@@ -213,7 +213,7 @@ tools/http_methods.py https://example.com/ --lang pt --json
 
 ## `cookie_check.py`
 
-Analyse `Set-Cookie` response headers. Flags missing HttpOnly on session-looking names, missing Secure over HTTPS, missing SameSite, SameSite=None without Secure, and Domain scoped wider than the response host.
+Analyse `Set-Cookie` response headers. Flags missing HttpOnly on session-looking names, missing Secure over HTTPS, missing SameSite, SameSite=None without Secure, Domain scoped wider than the response host, RFC 6265bis `__Host-` / `__Secure-` prefix violations, and long-lived cookies (Max-Age or Expires > 1 year).
 
 ```bash
 tools/cookie_check.py https://example.com
@@ -222,11 +222,14 @@ tools/cookie_check.py https://example.com --lang pt --json
 
 ## `dns_records.py`
 
-Pure-stdlib DNS client (raw UDP/53 with TCP fallback per RFC 1035 §4.2.2). Queries A/AAAA/MX/NS/TXT/CAA and analyses email auth: SPF (missing, multiple, `~all`/`?all`), DMARC (missing, `p=none`), CAA (missing).
+Pure-stdlib DNS client (raw UDP/53 with TCP fallback per RFC 1035 §4.2.2). Queries A/AAAA/MX/NS/CNAME/SOA/TXT/CAA and analyses email auth: SPF (missing, multiple, `~all`/`?all`), DMARC (missing, `p=none`), CAA (missing).
+
+Also probes AXFR (zone transfer) against every authoritative NS over TCP/53 — almost every server refuses, which is correct. An `allowed` result is a high-severity finding: full DNS zone publicly retrievable.
 
 ```bash
 tools/dns_records.py example.com
 tools/dns_records.py example.com --resolver 1.1.1.1 --lang pt
+tools/dns_records.py example.com --no-axfr           # skip zone-transfer probe
 ```
 
 ## `secrets_scan.py`
@@ -271,7 +274,7 @@ tools/wayback_check.py https://example.com --diff
 
 ## `tech_fingerprint.py`
 
-Identify the technology stack behind a website from response headers, cookies, and HTML (Wappalyzer-lite). Signature database covers nginx, Apache, IIS, Caddy; Cloudflare, Fastly, Cloudfront, Akamai; PHP, ASP.NET, Python, Ruby, Java EE; React, Vue, Svelte, Next, Nuxt, Angular, jQuery, Alpine; WordPress, Drupal, Joomla, Ghost; Shopify, Magento, WooCommerce; Jekyll, Hugo, Gatsby; Google Analytics, Plausible, Matomo; Rails, Django, Laravel cookies.
+Identify the technology stack behind a website from response headers, cookies, and HTML (Wappalyzer-lite). Signature database covers nginx, Apache, IIS, Caddy; Cloudflare, Fastly, Cloudfront, Akamai; WAFs (Cloudflare WAF, AWS WAF, Sucuri, Imperva/Incapsula, ModSecurity, Akamai Kona, F5 BIG-IP ASM); PHP, ASP.NET, Python, Ruby, Java EE; React, Vue, Svelte, Next, Nuxt, Angular, jQuery, Alpine; WordPress, Drupal, Joomla, Ghost; Shopify, Magento, WooCommerce; Jekyll, Hugo, Gatsby; Google Analytics, Plausible, Matomo; Rails, Django, Laravel cookies.
 
 ```bash
 tools/tech_fingerprint.py https://example.com
