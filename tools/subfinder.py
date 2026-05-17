@@ -167,6 +167,7 @@ def print_human(domain: str, resolved: list[ResolvedHost], skipped: int, lang: s
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(description="Enumerate subdomains via crt.sh + DNS wordlist brute-force.")
     add_version_arg(parser, "subfinder.py")
     add_user_agent_arg(parser, USER_AGENT)
@@ -180,7 +181,6 @@ def main() -> int:
     parser.add_argument("--skip-bruteforce", action="store_true", help="Skip wordlist brute-force, only crt.sh")
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     domain = stdin_or_arg(args.domain).strip().lower()

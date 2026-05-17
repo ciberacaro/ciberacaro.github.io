@@ -202,6 +202,7 @@ def print_human(info: CveInfo, lang: str) -> None:
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(description="Fetch CVE details from the NVD database.")
     add_version_arg(parser, "cve_lookup.py")
     add_user_agent_arg(parser, USER_AGENT)
@@ -211,7 +212,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     cve_id = stdin_or_arg(args.cve_id).strip().upper()

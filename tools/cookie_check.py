@@ -239,6 +239,7 @@ def print_human(target: str, scheme: str, cookies: list[Cookie], issues: list[Is
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(
         description="Analyze the Set-Cookie response headers of a URL.",
     )
@@ -250,7 +251,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)

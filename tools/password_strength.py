@@ -269,6 +269,7 @@ def print_human(a: Analysis, lang: str) -> None:
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(
         description="Password strength + Have I Been Pwned check (k-anonymity).",
     )
@@ -282,7 +283,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     if args.stdin:

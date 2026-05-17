@@ -586,6 +586,7 @@ def print_issue_report(findings: list[Finding], use_color: bool, lang: str) -> N
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(
         description="Check security-relevant HTTP response headers of a URL.",
     )
@@ -608,10 +609,8 @@ def main() -> int:
         "--timeout", type=float, default=10.0, help="Request timeout in seconds (default: 10)"
     )
     args = parser.parse_args()
-
-    L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
+    L = LABELS[args.lang]
     args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):

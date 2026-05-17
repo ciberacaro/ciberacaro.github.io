@@ -133,6 +133,7 @@ def print_human(user_id: int, stats: dict | None, lang: str) -> None:
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(
         description="Generate HackTheBox profile badge markdown; optional stats fetch with API token.",
     )
@@ -146,7 +147,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
     args.user_id = stdin_or_arg(args.user_id)
 

@@ -308,6 +308,7 @@ def print_human(url: str, results: list[MethodResult], issues: list[Issue], lang
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(description="Test which HTTP methods an endpoint allows.")
     add_version_arg(parser, "http_methods.py")
     add_user_agent_arg(parser, USER_AGENT)
@@ -317,7 +318,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)

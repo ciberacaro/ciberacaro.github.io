@@ -220,6 +220,7 @@ def cmd_diff(args, lang: str) -> int:
 
 
 def main() -> int:
+    global USER_AGENT
     # Parent parser carries the flags shared by every subcommand so they can
     # appear either before or after the subcommand name on the CLI.
     common = argparse.ArgumentParser(add_help=False)
@@ -239,7 +240,6 @@ def main() -> int:
     sp_diff = sub.add_parser("diff", help="Diff current state against last snapshot", parents=[common])
     sp_diff.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     args = parser.parse_args()
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)

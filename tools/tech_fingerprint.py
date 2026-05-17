@@ -210,6 +210,7 @@ def print_human(url: str, detections: list[Detection], lang: str) -> None:
 
 
 def main() -> int:
+    global USER_AGENT
     parser = argparse.ArgumentParser(description="Identify the technology stack behind a website.")
     add_version_arg(parser, "tech_fingerprint.py")
     add_user_agent_arg(parser, USER_AGENT)
@@ -219,7 +220,6 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
-    global USER_AGENT
     USER_AGENT = args.user_agent
 
     args.url = stdin_or_arg(args.url)
