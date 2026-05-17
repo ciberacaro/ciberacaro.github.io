@@ -20,12 +20,13 @@ import json
 import os
 import re
 import socket
-import ssl
 import sys
 import urllib.error
 import urllib.request
 
-USER_AGENT = "htb_stats.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("htb_stats.py")
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -66,25 +67,6 @@ LABELS = {
         "err_id": "erro: ID de utilizador tem de ser numérico",
     },
 }
-
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
-
 
 def badge_image_url(user_id: int) -> str:
     return f"https://www.hackthebox.com/badge/image/{user_id}"
@@ -154,7 +136,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate HackTheBox profile badge markdown; optional stats fetch with API token.",
     )
-    parser.add_argument("user_id", help="HTB user ID (numeric, from the profile URL)")
+    add_version_arg(parser, "htb_stats.py")
+    parser.add_argument("user_id", help="HTB user ID (numeric, from the profile URL). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--token", help="HTB API bearer token (or set HTB_TOKEN env var)")
     parser.add_argument("--badge-only", action="store_true", help="Only print the badge URL/markdown, skip the API call")
@@ -162,6 +145,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    args.user_id = stdin_or_arg(args.user_id)
 
     if not re.fullmatch(r"\d+", args.user_id):
         print(f"{L['err_id']}: {args.user_id!r}", file=sys.stderr)

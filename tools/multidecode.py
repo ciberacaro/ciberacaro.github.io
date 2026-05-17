@@ -21,6 +21,8 @@ import urllib.parse
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+from _lib import add_version_arg
+
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -239,6 +241,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Try multiple decodings (Base64, hex, URL, ROT13, etc.) on a string."
     )
+    add_version_arg(parser, "multidecode.py")
     parser.add_argument("text", help="Text to decode; use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true", help="Output as JSON.")

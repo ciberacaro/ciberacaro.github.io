@@ -13,10 +13,8 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
-import os
 import re
 import socket
-import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -24,7 +22,9 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-USER_AGENT = "subfinder.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("subfinder.py")
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -85,25 +85,6 @@ help
 forum
 community
 """.strip().split()
-
-
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
 
 
 @dataclass
@@ -187,7 +168,8 @@ def print_human(domain: str, resolved: list[ResolvedHost], skipped: int, lang: s
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enumerate subdomains via crt.sh + DNS wordlist brute-force.")
-    parser.add_argument("domain", help="Base domain, e.g. example.com")
+    add_version_arg(parser, "subfinder.py")
+    parser.add_argument("domain", help="Base domain, e.g. example.com. Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--wordlist", help="Path to a wordlist (default: built-in 27 entries)")
     parser.add_argument("--json", action="store_true")
@@ -198,7 +180,7 @@ def main() -> int:
     args = parser.parse_args()
     L = LABELS[args.lang]
 
-    domain = args.domain.strip().lower()
+    domain = stdin_or_arg(args.domain).strip().lower()
     if not re.fullmatch(r"[a-z0-9.\-]+\.[a-z]{2,}", domain):
         print(f"{L['err_domain']}: {domain}", file=sys.stderr)
         return 2

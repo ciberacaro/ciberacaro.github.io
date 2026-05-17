@@ -14,6 +14,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from _lib import add_version_arg
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 POSTS_DIR = REPO_ROOT / "_posts"
 
@@ -94,6 +96,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate a new writeup skeleton in _posts/",
     )
+    add_version_arg(parser, "new_writeup.py")
     parser.add_argument("name", help="Room/machine name, e.g. 'Vulnversity'")
     parser.add_argument(
         "--platform",

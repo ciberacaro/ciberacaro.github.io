@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import socket
-import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -30,7 +28,9 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-USER_AGENT = "header_diff.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("header_diff.py")
 LANGS = ("en", "pt")
 
 # These are the response headers we track. Add/remove as you like.
@@ -87,25 +87,6 @@ LABELS = {
         "err_unreachable": "erro: não foi possível alcançar",
     },
 }
-
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
-
 
 def fetch(url: str, timeout: float = 10.0) -> tuple[int, dict[str, str]]:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -250,12 +231,15 @@ def main() -> int:
         description="Snapshot a URL's security headers and diff over time.",
         parents=[common],
     )
+    add_version_arg(parser, "header_diff.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sp_snap = sub.add_parser("snapshot", help="Save current header state as a snapshot", parents=[common])
-    sp_snap.add_argument("url")
+    sp_snap.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     sp_diff = sub.add_parser("diff", help="Diff current state against last snapshot", parents=[common])
-    sp_diff.add_argument("url")
+    sp_diff.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     args = parser.parse_args()
+
+    args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):
         print(LABELS[args.lang]["err_scheme"], file=sys.stderr)

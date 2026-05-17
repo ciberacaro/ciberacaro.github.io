@@ -16,6 +16,8 @@ import re
 import sys
 from dataclasses import asdict, dataclass
 
+from _lib import add_version_arg
+
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -175,6 +177,7 @@ def print_human(text: str, candidates: list[HashCandidate], lang: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Identify the likely type(s) of a hash string.")
+    add_version_arg(parser, "hashid.py")
     parser.add_argument("text", help="Hash string; use '-' for stdin")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")

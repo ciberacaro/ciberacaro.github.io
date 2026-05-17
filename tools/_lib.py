@@ -65,9 +65,17 @@ def build_ssl_context() -> ssl.SSLContext:
 
 
 def stdin_or_arg(value: str) -> str:
-    """If `value` is exactly '-', read from stdin (stripped). Otherwise return `value`."""
+    """If `value` is exactly '-', read a single line from stdin (stripped).
+
+    Otherwise return `value` unchanged. Designed for tools that accept one
+    target (URL, host, domain, JWT) as a positional arg.
+    """
     if value == "-":
-        return sys.stdin.read().strip()
+        line = sys.stdin.readline().strip()
+        if not line:
+            print("error: stdin is empty", file=sys.stderr)
+            sys.exit(2)
+        return line
     return value
 
 

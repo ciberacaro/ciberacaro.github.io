@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import socket
-import ssl
 import sys
 import textwrap
 import urllib.error
@@ -23,7 +21,9 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-USER_AGENT = "check_headers.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("check_headers.py")
 
 OK = "OK"
 WEAK = "WEAK"
@@ -352,31 +352,6 @@ class Finding:
     note: str
 
 
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    """Build an SSL context with sensible CA fallbacks.
-
-    Python.org Python on macOS ships without root CAs unless the user runs
-    `Install Certificates.command`. Fall back to common system CA bundles
-    so the tool works out of the box.
-    """
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
-
-
 def _normalize(headers_obj) -> dict[str, str]:
     """Return headers as a dict keyed by lowercase name (HTTP headers are case-insensitive)."""
     return {k.lower(): v for k, v in headers_obj.items()} if headers_obj else {}
@@ -614,7 +589,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check security-relevant HTTP response headers of a URL.",
     )
-    parser.add_argument("url", help="Target URL (must include scheme: http:// or https://)")
+    add_version_arg(parser, "check_headers.py")
+    parser.add_argument("url", help="Target URL (must include scheme: http:// or https://). Use '-' to read from stdin.")
     parser.add_argument(
         "--lang",
         choices=LANGS,
@@ -633,6 +609,7 @@ def main() -> int:
     args = parser.parse_args()
 
     L = LABELS[args.lang]
+    args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):
         print(f"{L['err_scheme']} ({L['got']} {args.url!r})", file=sys.stderr)

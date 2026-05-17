@@ -18,6 +18,8 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
+from _lib import add_version_arg
+
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -277,6 +279,7 @@ def print_human(info: JWTInfo, lang: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Decode a JSON Web Token and flag common security issues.")
+    add_version_arg(parser, "jwt_inspect.py")
     parser.add_argument("token", help="JWT string; use '-' for stdin")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")

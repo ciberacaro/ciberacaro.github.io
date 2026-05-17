@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import socket
-import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -26,7 +24,9 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
-USER_AGENT = "cors_check.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("cors_check.py")
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -112,25 +112,6 @@ class Issue:
     label: str
     risk: str
     fix: str
-
-
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
 
 
 def _read_cors_headers(resp_headers) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
@@ -264,12 +245,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Probe a URL for risky CORS configurations.",
     )
-    parser.add_argument("url", help="Target URL (http:// or https://)")
+    add_version_arg(parser, "cors_check.py")
+    parser.add_argument("url", help="Target URL (http:// or https://). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)

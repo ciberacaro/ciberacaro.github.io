@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import socket
-import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -26,7 +24,9 @@ import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
-USER_AGENT = "robots_check.py/0.1 (+https://ciberacaro.github.io)"
+from _lib import build_ssl_context, make_user_agent, add_version_arg, stdin_or_arg
+
+USER_AGENT = make_user_agent("robots_check.py")
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -109,25 +109,6 @@ class UARules:
     allow: list[str] = field(default_factory=list)
     crawl_delay: Optional[str] = None
     host: Optional[str] = None
-
-
-CA_FALLBACK_LOCATIONS = (
-    "/etc/ssl/cert.pem",
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/opt/homebrew/etc/openssl@3/cert.pem",
-    "/usr/local/etc/openssl@3/cert.pem",
-)
-
-
-def build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if ctx.get_ca_certs():
-        return ctx
-    for cafile in CA_FALLBACK_LOCATIONS:
-        if os.path.exists(cafile):
-            ctx.load_verify_locations(cafile=cafile)
-            return ctx
-    return ctx
 
 
 def fetch(url: str, timeout: float = 10.0) -> tuple[int, str]:
@@ -274,12 +255,14 @@ def print_human(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze /robots.txt and /sitemap.xml for a site.")
-    parser.add_argument("url", help="Target site URL (http:// or https://)")
+    add_version_arg(parser, "robots_check.py")
+    parser.add_argument("url", help="Target site URL (http:// or https://). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    args.url = stdin_or_arg(args.url)
 
     if not re.match(r"^https?://", args.url):
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)

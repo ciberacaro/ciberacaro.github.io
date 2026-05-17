@@ -20,6 +20,8 @@ import urllib.parse
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
+from _lib import add_version_arg, stdin_or_arg
+
 LANGS = ("en", "pt")
 
 LABELS = {
@@ -346,12 +348,14 @@ def print_human(info: CertInfo, lang: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect the TLS certificate of a host.")
-    parser.add_argument("target", help="Hostname, host:port, or full URL (default port: 443)")
+    add_version_arg(parser, "tls_inspect.py")
+    parser.add_argument("target", help="Hostname, host:port, or full URL (default port: 443). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
+    args.target = stdin_or_arg(args.target)
 
     host, port = parse_host_port(args.target)
     if not host:
