@@ -195,7 +195,7 @@ def cmd_diff(args, lang: str) -> int:
     prev = latest_snapshot(args.url)
     if prev is None:
         print(L["no_previous"], file=sys.stderr)
-        return 4
+        return 2
     prev_path, prev_data = prev
     try:
         status, all_headers = fetch(args.url, timeout=args.timeout)

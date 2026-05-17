@@ -2,6 +2,39 @@
 
 Small utilities used while building this portfolio. This directory is excluded from the Jekyll build (see `exclude:` in `_config.yml`), so nothing here is published as part of the site.
 
+## Conventions across the toolchain
+
+These rules hold for every Python tool in this directory unless its own section says otherwise:
+
+- **Language:** Python 3.8+ standard library only. No `pip install` required.
+- **Bilingual:** every tool with non-trivial output supports `--lang {en,pt}`. Default is `en`; `pt` is European Portuguese.
+- **Version:** every tool exposes `--version`. The version string is centralised in `_lib.TOOLS_VERSION`.
+- **Stdin:** every tool that takes a single positional argument (URL, host, domain, token, hash, text, user ID) accepts `-` to read it from stdin. Useful for `... | xargs` pipelines and `... | tool -` chains.
+- **Exit codes** (uniform across tools):
+
+  | Code | Meaning |
+  |------|---------|
+  | `0` | Success — no issues or nothing notable found |
+  | `1` | Issues found (missing/weak security headers, expired cert, alg:none in JWT, etc.) — or in `header_diff`, snapshot differences detected |
+  | `2` | Usage / argument error (bad URL, missing stdin, empty input, invalid hash format) |
+  | `3` | Network, DNS, or TLS error |
+
+- **macOS Python.org SSL fallback:** every networked tool falls back to `/etc/ssl/cert.pem` (or other common CA locations) when the default SSL context has no CAs configured. This avoids the `CERTIFICATE_VERIFY_FAILED` paper cut without requiring the user to run `Install Certificates.command`.
+- **User-Agent:** uniform format `<tool>/<version> (+https://ciberacaro.github.io)` produced by `_lib.make_user_agent`. Operators on the receiving end can land on the portfolio and read what this traffic is.
+
+## `_lib.py`
+
+Shared utilities (not a runnable tool) used by every other script here. Stdlib-only. Exposes:
+
+| Function / constant | Purpose |
+|----|----|
+| `TOOLS_VERSION` | Single source of truth for the version string |
+| `PORTFOLIO_URL` | Portfolio URL referenced in User-Agent strings |
+| `make_user_agent(tool, version=TOOLS_VERSION)` | Build the standard UA string |
+| `build_ssl_context()` | SSL context with macOS Python.org CA fallback |
+| `stdin_or_arg(value)` | Return `value`, or read from stdin if `value == "-"` |
+| `add_version_arg(parser, tool_name)` | Register a uniform `--version` action on an argparse parser |
+
 ## `new_writeup.py`
 
 Generate a writeup skeleton in `_posts/` with Chirpy frontmatter and the standard pentest-writeup sections (Overview, Reconnaissance, Initial Access, Privilege Escalation, Lessons Learned, References).
@@ -25,10 +58,6 @@ tools/new_writeup.py "Lab name"    --platform portswigger --difficulty medium
 | `--date` | `YYYY-MM-DD` | today | Overrides today's date (useful for back-dating). |
 
 The script refuses to overwrite an existing file.
-
-### Requirements
-
-Python 3.8+. Standard library only — no `pip install` needed.
 
 ## `check_headers.py`
 
@@ -68,19 +97,6 @@ The human-readable output has three sections:
 3. **Issues found** — for every MISSING and WEAK header: the concrete attack/risk it enables and a one-line fix recommendation.
 
 JSON output (`--json`) includes `risk` and `fix` fields per finding, plus `issues_count` at the top level. The `--lang` flag affects both human and JSON output.
-
-Exit codes:
-
-| Code | Meaning |
-|------|---------|
-| `0` | All security headers present |
-| `1` | At least one header MISSING |
-| `2` | Bad arguments (e.g. URL missing scheme) |
-| `3` | Network / DNS / TLS error |
-
-### Requirements
-
-Python 3.8+, standard library only. On macOS Python.org installs, the script falls back to `/etc/ssl/cert.pem` automatically if the default SSL context has no CAs configured.
 
 ## `multidecode.py`
 
