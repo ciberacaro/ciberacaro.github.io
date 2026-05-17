@@ -13,9 +13,11 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import random
 import re
 import socket
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -116,14 +118,18 @@ def query_crtsh(domain: str, timeout: float = 30.0) -> list[str]:
     return sorted(seen)
 
 
-def resolve(host: str) -> list[str]:
+def resolve(host: str, jitter_max: float = 0.0) -> list[str]:
     """Return list of A/AAAA addresses for host, empty if it doesn't resolve.
+
+    `jitter_max` (seconds) introduces a small random delay before issuing
+    the DNS query, to avoid hammering resolvers with N simultaneous bursts.
 
     Note: getaddrinfo() does not honour socket.setdefaulttimeout() — that
     timeout only affects subsequent socket I/O, not the underlying DNS
-    resolver. So we don't bother setting it (the previous version did,
-    and worse, did so as a global side effect that race'd between threads).
+    resolver.
     """
+    if jitter_max > 0:
+        time.sleep(random.uniform(0, jitter_max))
     try:
         infos = socket.getaddrinfo(host, None)
     except (socket.gaierror, socket.timeout, OSError):
@@ -131,10 +137,10 @@ def resolve(host: str) -> list[str]:
     return sorted({info[4][0] for info in infos})
 
 
-def resolve_many(hosts: list[str], threads: int = 20) -> dict[str, list[str]]:
+def resolve_many(hosts: list[str], threads: int = 10, jitter_max: float = 0.1) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as pool:
-        futures = {pool.submit(resolve, h): h for h in hosts}
+        futures = {pool.submit(resolve, h, jitter_max): h for h in hosts}
         for fut in concurrent.futures.as_completed(futures):
             host = futures[fut]
             try:
@@ -175,7 +181,10 @@ def main() -> int:
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--wordlist", help="Path to a wordlist (default: built-in 27 entries)")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--threads", type=int, default=20)
+    parser.add_argument("--threads", type=int, default=10,
+                        help="Parallel DNS resolution workers (default: 10).")
+    parser.add_argument("--jitter", type=float, default=0.1,
+                        help="Max random delay (seconds) before each DNS query, to avoid bursts (default: 0.1).")
     parser.add_argument("--timeout", type=float, default=30.0, help="crt.sh request timeout (default 30s)")
     parser.add_argument("--skip-crtsh", action="store_true", help="Don't query crt.sh, only brute-force")
     parser.add_argument("--skip-bruteforce", action="store_true", help="Skip wordlist brute-force, only crt.sh")
@@ -205,7 +214,7 @@ def main() -> int:
             if host not in candidates:
                 candidates[host] = "wordlist"
 
-    results = resolve_many(list(candidates.keys()), threads=args.threads)
+    results = resolve_many(list(candidates.keys()), threads=args.threads, jitter_max=args.jitter)
     resolved: list[ResolvedHost] = []
     skipped = 0
     for host, ips in sorted(results.items()):
