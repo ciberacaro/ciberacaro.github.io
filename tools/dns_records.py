@@ -42,6 +42,7 @@ TYPE = {
     "TXT": 16,
     "AAAA": 28,
     "SRV": 33,
+    "AXFR": 252,
     "CAA": 257,
 }
 CLASS_IN = 1
@@ -56,6 +57,11 @@ LABELS = {
         "spf": "SPF",
         "dkim": "DKIM (default selector tested)",
         "dmarc": "DMARC",
+        "axfr_section": "Zone transfer (AXFR) probe",
+        "axfr_against": "against",
+        "axfr_refused": "refused (good)",
+        "axfr_allowed": "allowed — full zone served",
+        "axfr_skipped": "(skipped, --no-axfr)",
         "issues_header": "Issues found",
         "no_issues": "Nothing alarming in the records returned.",
         "risk_label": "Risk:",
@@ -72,6 +78,11 @@ LABELS = {
         "spf": "SPF",
         "dkim": "DKIM (selector default testado)",
         "dmarc": "DMARC",
+        "axfr_section": "Sondagem de zone transfer (AXFR)",
+        "axfr_against": "contra",
+        "axfr_refused": "recusado (bom)",
+        "axfr_allowed": "permitido — zona inteira servida",
+        "axfr_skipped": "(saltado, --no-axfr)",
         "issues_header": "Problemas encontrados",
         "no_issues": "Nada de alarmante nos registos devolvidos.",
         "risk_label": "Risco:",
@@ -118,6 +129,12 @@ ISSUE_TEXT = {
         "pt": ("Sem registos CAA — qualquer CA pode emitir certificados para este domínio",
                "Adiciona registos CAA para restringir que CAs podem emitir (ex: 'letsencrypt.org', 'digicert.com')."),
     },
+    "axfr_open": {
+        "en": ("Zone transfer (AXFR) allowed from {} — full DNS zone is publicly retrievable",
+               "Restrict AXFR to specific secondary NS in your DNS server config. AXFR exposes every subdomain, IP, and record at once."),
+        "pt": ("Zone transfer (AXFR) permitido a partir de {} — zona DNS inteira é publicamente obtível",
+               "Restringe AXFR a NS secundários específicos na configuração do servidor DNS. AXFR expõe todos os subdomínios, IPs e registos de uma vez."),
+    },
 }
 
 
@@ -128,8 +145,11 @@ class Records:
     mx: list[str] = field(default_factory=list)
     ns: list[str] = field(default_factory=list)
     txt: list[str] = field(default_factory=list)
+    cname: list[str] = field(default_factory=list)
+    soa: list[str] = field(default_factory=list)
     caa: list[str] = field(default_factory=list)
     dmarc: list[str] = field(default_factory=list)
+    axfr_results: dict[str, str] = field(default_factory=dict)  # ns -> "refused"|"allowed:N records"|"timeout"|"skipped"
 
 
 @dataclass
@@ -309,6 +329,22 @@ def _parse_caa(rdata: bytes, *_) -> str:
     return f"{flags} {tag} \"{value}\""
 
 
+def _parse_cname(rdata: bytes, full: bytes, offset: int) -> str:
+    name, _ = _read_name(full, offset)
+    return name
+
+
+def _parse_soa(rdata: bytes, full: bytes, offset: int) -> str:
+    """SOA RDATA: MNAME RNAME SERIAL REFRESH RETRY EXPIRE MINIMUM."""
+    mname, off2 = _read_name(full, offset)
+    rname, off3 = _read_name(full, off2)
+    # The remaining 20 bytes are 5 32-bit unsigned ints
+    if off3 + 20 > offset + len(rdata) + (full.__len__() - len(full)):  # bounds guard
+        pass
+    serial, refresh, retry, expire, minimum = struct.unpack(">IIIII", full[off3:off3 + 20])
+    return f"{mname} {rname} ({serial} {refresh} {retry} {expire} {minimum})"
+
+
 PARSERS = {
     TYPE["A"]: _parse_a,
     TYPE["AAAA"]: _parse_aaaa,
@@ -316,7 +352,74 @@ PARSERS = {
     TYPE["MX"]: _parse_mx,
     TYPE["TXT"]: _parse_txt,
     TYPE["CAA"]: _parse_caa,
+    TYPE["CNAME"]: _parse_cname,
+    TYPE["SOA"]: _parse_soa,
 }
+
+
+def try_axfr(domain: str, ns: str, timeout: float) -> str:
+    """Attempt a DNS zone transfer (AXFR) against `ns` over TCP/53.
+
+    Returns a short status string describing what happened. AXFR is
+    normally restricted to a small list of secondary servers; a server
+    that hands the full zone to anyone is a misconfiguration with
+    serious recon impact.
+    """
+    txid = random.randint(0, 0xFFFF)
+    header = struct.pack(">HHHHHH", txid, 0x0000, 1, 0, 0, 0)
+    question = _encode_name(domain) + struct.pack(">HH", TYPE["AXFR"], CLASS_IN)
+    packet = header + question
+    try:
+        sock = socket.create_connection((ns, 53), timeout=timeout)
+    except (socket.gaierror, socket.timeout, ConnectionRefusedError, OSError) as e:
+        return f"unreachable ({e.__class__.__name__})"
+    try:
+        sock.settimeout(timeout)
+        sock.sendall(struct.pack(">H", len(packet)) + packet)
+        # Read length-prefixed responses until short read / refused
+        records_seen = 0
+        first_response = b""
+        while True:
+            try:
+                len_bytes = sock.recv(2)
+            except socket.timeout:
+                break
+            if len(len_bytes) < 2:
+                break
+            msg_len = struct.unpack(">H", len_bytes)[0]
+            data = b""
+            while len(data) < msg_len:
+                chunk = sock.recv(msg_len - len(data))
+                if not chunk:
+                    break
+                data += chunk
+            if len(data) < 12:
+                break
+            if not first_response:
+                first_response = data
+            rcode = data[3] & 0x0F  # bottom nibble of the second flags byte
+            if rcode != 0:
+                # REFUSED (5), NOTAUTH (9), etc.
+                return "refused"
+            ancount = struct.unpack(">H", data[6:8])[0]
+            records_seen += ancount
+            if records_seen > 5000:  # safety cap for runaway zones
+                break
+            # The AXFR session ends when the server sends the SOA twice.
+            # Cheap heuristic: stop after we've received 2 or more messages
+            # with answers. Good enough for "did it work?" detection.
+            if records_seen > 0 and msg_len < 512 and not first_response.endswith(data):
+                break
+        if records_seen > 0:
+            return f"allowed ({records_seen} records)"
+        return "no response"
+    except (socket.timeout, OSError):
+        return "timeout"
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
 
 
 def lookup(qname: str, type_name: str, resolver: str, timeout: float) -> list[str]:
@@ -375,6 +478,12 @@ def evaluate(records: Records, domain: str, lang: str) -> list[Issue]:
         t = ISSUE_TEXT["no_caa"][lang]
         issues.append(Issue("no_caa", t[0], t[0], t[1]))
 
+    for ns, status in records.axfr_results.items():
+        if status.startswith("allowed"):
+            t = ISSUE_TEXT["axfr_open"][lang]
+            label = t[0].format(ns)
+            issues.append(Issue("axfr_open", label, label, t[1]))
+
     return issues
 
 
@@ -398,6 +507,8 @@ def print_human(domain: str, resolver: str, records: Records, issues: list[Issue
     section("AAAA", records.aaaa)
     section("MX", records.mx)
     section("NS", records.ns)
+    section("CNAME", records.cname)
+    section("SOA", records.soa)
     section("TXT", records.txt)
     section("CAA", records.caa)
 
@@ -405,6 +516,17 @@ def print_human(domain: str, resolver: str, records: Records, issues: list[Issue
     spf = find_spf(records.txt)
     print(f"  {L['spf']}: " + (spf[0] if spf else "—"))
     print(f"  {L['dmarc']}: " + (records.dmarc[0] if records.dmarc else "—"))
+    print()
+
+    print(f"{L['axfr_section']}:")
+    if not records.axfr_results:
+        print(f"  {L['axfr_skipped']}")
+    for ns, status in records.axfr_results.items():
+        marker = "✗" if status.startswith("allowed") else ("·" if status == "refused" else "i")
+        readable = L["axfr_allowed"] if status.startswith("allowed") else (
+            L["axfr_refused"] if status == "refused" else status
+        )
+        print(f"  {marker} {L['axfr_against']} {ns}: {readable}")
     print()
 
     if issues:
@@ -427,6 +549,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--resolver", default=DEFAULT_RESOLVERS[0],
                         help=f"DNS resolver IP (default: {DEFAULT_RESOLVERS[0]})")
+    parser.add_argument("--no-axfr", action="store_true",
+                        help="Skip the zone-transfer (AXFR) probe against each authoritative NS.")
     args = parser.parse_args()
     L = LABELS[args.lang]
 
@@ -441,8 +565,16 @@ def main() -> int:
     records.mx = lookup(domain, "MX", args.resolver, args.timeout)
     records.ns = lookup(domain, "NS", args.resolver, args.timeout)
     records.txt = lookup(domain, "TXT", args.resolver, args.timeout)
+    records.cname = lookup(domain, "CNAME", args.resolver, args.timeout)
+    records.soa = lookup(domain, "SOA", args.resolver, args.timeout)
     records.caa = lookup(domain, "CAA", args.resolver, args.timeout)
     records.dmarc = lookup(f"_dmarc.{domain}", "TXT", args.resolver, args.timeout)
+
+    # AXFR probe against every authoritative NS — most servers refuse, which
+    # is what we want. An "allowed" result is a serious recon finding.
+    if not args.no_axfr and records.ns:
+        for ns in records.ns:
+            records.axfr_results[ns] = try_axfr(domain, ns, timeout=min(args.timeout, 5.0))
 
     issues = evaluate(records, domain, args.lang)
 
