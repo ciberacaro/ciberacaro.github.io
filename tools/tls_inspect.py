@@ -38,8 +38,12 @@ LABELS = {
         "version": "Version",
         "serial": "Serial",
         "sans": "Subject Alternative Names",
-        "tls_version": "TLS version",
+        "tls_version": "TLS version (negotiated)",
         "cipher": "Cipher",
+        "supported_versions": "TLS versions accepted by server",
+        "supported": "accepted",
+        "not_supported": "rejected",
+        "not_tested": "not tested (build-time disabled)",
         "issues_header": "Issues found",
         "no_issues": "No issues — certificate looks healthy.",
         "risk_label": "Risk:",
@@ -62,8 +66,12 @@ LABELS = {
         "version": "Versão",
         "serial": "Série",
         "sans": "Subject Alternative Names",
-        "tls_version": "Versão TLS",
+        "tls_version": "Versão TLS (negociada)",
         "cipher": "Cifra",
+        "supported_versions": "Versões TLS aceites pelo servidor",
+        "supported": "aceite",
+        "not_supported": "rejeitada",
+        "not_tested": "não testado (desativado em build-time)",
         "issues_header": "Problemas encontrados",
         "no_issues": "Sem problemas — o certificado parece saudável.",
         "risk_label": "Risco:",
@@ -77,6 +85,12 @@ LABELS = {
 
 # Issues with bilingual risk/fix text
 ISSUE_TEXT = {
+    "weak_tls_versions": {
+        "en": ("Server accepts deprecated TLS version(s): {}",
+               "Disable SSLv3 / TLS 1.0 / TLS 1.1 in your server config. They are vulnerable to BEAST, POODLE, and others; modern browsers refuse them anyway."),
+        "pt": ("Servidor aceita versão(ões) TLS descontinuada(s): {}",
+               "Desativa SSLv3 / TLS 1.0 / TLS 1.1 na configuração do servidor. São vulneráveis a BEAST, POODLE e outros; browsers modernos já as recusam."),
+    },
     "expired": {
         "en": ("Certificate has expired", "Renew the certificate immediately. Browsers will refuse the connection."),
         "pt": ("O certificado expirou", "Renova o certificado imediatamente. Os browsers vão recusar a ligação."),
@@ -126,7 +140,22 @@ class CertInfo:
     sans: list[str]
     tls_version: str
     cipher: str
+    accepted_versions: dict[str, str] = field(default_factory=dict)  # version -> "accepted"|"rejected"|"unavailable"
     issues: list[Issue] = field(default_factory=list)
+
+
+# Versions we probe, ordered oldest -> newest. ssl.TLSVersion uses these names.
+# Some are likely to be unavailable depending on the Python build (e.g. SSLv3
+# is compiled out in modern Pythons).
+TLS_VERSIONS_TO_PROBE = (
+    ("SSLv3", "SSLv3"),
+    ("TLSv1", "TLSv1.0"),
+    ("TLSv1_1", "TLSv1.1"),
+    ("TLSv1_2", "TLSv1.2"),
+    ("TLSv1_3", "TLSv1.3"),
+)
+# Versions that are considered weak/deprecated for security reporting purposes.
+DEPRECATED_VERSIONS = {"SSLv3", "TLSv1.0", "TLSv1.1"}
 
 
 def parse_host_port(value: str) -> tuple[str, int]:
@@ -139,6 +168,45 @@ def parse_host_port(value: str) -> tuple[str, int]:
         host, _, p = value.partition(":")
         return host, int(p)
     return value, 443
+
+
+def probe_tls_version(host: str, port: int, version_attr: str, timeout: float) -> str:
+    """Try to handshake with `host:port` constrained to a single TLS version.
+
+    Returns "accepted", "rejected", or "unavailable" (this build of Python /
+    OpenSSL has no support for that version at all).
+    """
+    try:
+        version_enum = getattr(ssl.TLSVersion, version_attr)
+    except AttributeError:
+        return "unavailable"
+
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # Force min == max so the handshake is pinned to exactly this version.
+        ctx.minimum_version = version_enum
+        ctx.maximum_version = version_enum
+        # SSLv3 / TLS 1.0 / TLS 1.1 ciphers may have been removed from the
+        # default cipher list. Re-enable a permissive list for the probe.
+        try:
+            ctx.set_ciphers("ALL:@SECLEVEL=0")
+        except ssl.SSLError:
+            pass
+    except (ValueError, ssl.SSLError):
+        return "unavailable"
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host):
+                return "accepted"
+    except (ssl.SSLError, ssl.SSLEOFError, ConnectionResetError):
+        return "rejected"
+    except (socket.timeout, TimeoutError, OSError):
+        # Treat network-level errors as rejected — distinguishing them from
+        # protocol errors isn't possible without parsing the alert.
+        return "rejected"
 
 
 def fetch_cert(host: str, port: int, timeout: float = 10.0) -> tuple[dict, str, str, bytes]:
@@ -247,6 +315,15 @@ def host_matches_cert(host: str, common_name: str, sans: list[str]) -> bool:
 
 def evaluate(info: CertInfo, host: str, lang: str) -> list[Issue]:
     issues = []
+
+    # Weak TLS versions enabled by the server
+    weak_enabled = [v for v, status in info.accepted_versions.items()
+                    if status == "accepted" and v in DEPRECATED_VERSIONS]
+    if weak_enabled:
+        t = ISSUE_TEXT["weak_tls_versions"][lang]
+        label = t[0].format(", ".join(weak_enabled))
+        issues.append(Issue(key="weak_tls_versions", label=label, risk=label, fix=t[1]))
+
     now = datetime.now(timezone.utc)
     valid_to = _parse_cert_date(info.valid_to)
     if valid_to < now:
@@ -305,6 +382,10 @@ def collect(host: str, port: int, timeout: float, lang: str) -> CertInfo:
         tls_version=tls_version,
         cipher=cipher,
     )
+    # Probe each TLS version with a short timeout. Sequential is fine —
+    # we're only doing 5 quick handshakes per target.
+    for attr, name in TLS_VERSIONS_TO_PROBE:
+        info.accepted_versions[name] = probe_tls_version(host, port, attr, timeout=min(timeout, 5.0))
     info.issues = evaluate(info, host, lang)
     return info
 
@@ -334,6 +415,20 @@ def print_human(info: CertInfo, lang: str) -> None:
             print(f"  - {san}")
         if len(info.sans) > 20:
             print(f"  ... ({len(info.sans) - 20} more)")
+
+    if info.accepted_versions:
+        print(f"\n{L['supported_versions']}:")
+        for v, status in info.accepted_versions.items():
+            if status == "accepted":
+                marker = "✓" if v not in DEPRECATED_VERSIONS else "✗"
+                tag = L["supported"]
+            elif status == "unavailable":
+                marker = "i"
+                tag = L["not_tested"]
+            else:
+                marker = "·"
+                tag = L["not_supported"]
+            print(f"  {marker} {v:<8}  {tag}")
 
     if info.issues:
         print(f"\n{L['issues_header']} ({len(info.issues)}):")
