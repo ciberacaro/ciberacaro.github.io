@@ -104,8 +104,9 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - See `tools/README.md` for the quick reference per tool, or `tools/HOWTO.txt` for the bilingual long-form tutorial (purpose / examples with expected output / flags / exit codes / tips per tool, EN + PT-PT).
   - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
 - ✅ `tools/HOWTO.txt` published — bilingual (EN + PT-PT) long-form tutorial (~2555 lines) for all 22 tools: purpose, quick-start, 3 real scenarios with expected output, flags, exit codes, tips per tool.
+- ✅ First posts published (2026-05-18): three bilingual cheatsheets in `_posts/` — `web-recon-stdlib-python` (recon orchestrator walkthrough), `subdomain-takeover-dangling-cnames` (CNAME takeover hunting), `log-analysis-brute-force` (log forensics patterns). EN + PT-PT pairs cross-linked via permalinks. **Bilingual posts override the original "posts in English only" policy** — keep both versions in sync when iterating.
 - ⏳ **Open work items:**
-  - First actual writeup (use the generator + fill it in after Luís has CTF content)
+  - First CTF writeup (the cheatsheets above demonstrate the toolchain but the portfolio still needs actual CTF / HTB / TryHackMe content)
   - Avatar image
   - LinkedIn URL once Luís creates a profile
   - Audit existing public repos on `ciberacaro` account before promoting site publicly
