@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path_scan + subdomain_takeover).
+Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path_scan + subdomain_takeover + log_parser + email_forensics + file_hash).
 
 ---
 
@@ -31,6 +31,7 @@ Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path
 - Created `tools/HOWTO.txt` — single bilingual (EN + PT-PT) long-form tutorial for all 22 tools (~2555 lines). Structure: universal conventions → table of contents → 9 categories → 22 tool entries, each with PURPOSE, QUICK START, 3 real scenarios with expected output, FLAGS, EXIT CODES, and TIPS. Updated `tools/README.md` (quick-reference note), `SESSION_LOG.md` glossary, and `CLAUDE.md` to reference it. Merged to `main`.
 - Created `tools/guia-ferramentas.pdf` (+ `.md` source + `.html` printable) — PT-PT layperson-friendly guide for non-technical readers. PDF generated with pandoc + XeLaTeX (selectable text).
 - Added 2 new tools (total now 24): `path_scan.py` (gobuster-style path/directory discovery, 75-path built-in wordlist, threaded, risk-flagging) and `subdomain_takeover.py` (dangling-CNAME takeover detection, raw-UDP CNAME resolver, 16 service fingerprints, crt.sh auto-enumeration). README + HOWTO + SESSION_LOG + CLAUDE all updated together (per the durable rule below).
+- Reviewed the Portuguese national qualification reference for "Técnico/a Especialista em Cibersegurança" (CET Level 5, published BTE 17 / 08-May-2025) and added 3 tools mapped directly to its curriculum units (total now 27): `log_parser.py` (UC01481+UC01482 — log normalisation, brute-force/scanner detection), `email_forensics.py` (UC01485 — email header forensics, SPF/DKIM/DMARC, impersonation detection), `file_hash.py` (UC01489 — chain-of-custody hashing with manifest verify). Introduced a new HOWTO category "7. LOG ANALYSIS & FORENSICS"; sections 7→8 (Orchestration), 8→9 (HackTheBox), 9→10 (Portfolio) renumbered.
 
 **Lesson learned, documented in CLAUDE.md and feedback memory:** Parallel sessions without CLAUDE.md context are dangerous. The mitigation is the claude.ai Project — re-upload CLAUDE.md + SESSION_LOG.md whenever they change so every device's chat sees the same state.
 
@@ -76,7 +77,7 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (24 tools in `tools/` + shared `_lib.py`)
+### Toolchain (27 tools in `tools/` + shared `_lib.py`)
 
 All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
@@ -106,6 +107,9 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `xor_crack.py` | XOR ciphertext recovery (single + multi-byte via frequency analysis) |
 | `path_scan.py` | Wordlist-based HTTP path/directory discovery (gobuster-style, threaded, risk-flagged) |
 | `subdomain_takeover.py` | Dangling-CNAME subdomain takeover detection (16 service fingerprints, crt.sh enum) |
+| `log_parser.py` | Log normalisation + brute-force/scanner detection (Apache/syslog/generic, streamed) |
+| `email_forensics.py` | .eml header analysis: SPF/DKIM/DMARC, Received chain, brand impersonation |
+| `file_hash.py` | Forensic file hashing (MD5/SHA, manifests, chain-of-custody) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.

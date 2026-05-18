@@ -343,6 +343,52 @@ tools/cve_lookup.py CVE-2021-44228
 tools/cve_lookup.py CVE-2021-44228 --lang pt --json
 ```
 
+## `log_parser.py`
+
+Parse a log file (Apache/nginx access logs, syslog, or generic text) and extract & normalise IPs, emails, domains, URLs, and timestamps with precompiled regex. Aggregates top-N counts per category, classifies IPs (private / public / loopback / link-local for both IPv4 and IPv6), flags sensitive-path hits (`.env`, `.git`, `wp-admin`, etc.), and detects suspicious patterns: brute-force (same IP with ≥N 4xx responses), scanner activity (single IP touching >50 unique paths), and BOTNET-style hits on sensitive paths. Streams line-by-line so it handles multi-GB log files without loading them into memory.
+
+Inspired by curriculum unit UC01481 / UC01482 of the Portuguese CET in Cybersecurity (log normalisation and filtering).
+
+```bash
+tools/log_parser.py access.log
+tools/log_parser.py access.log --top 20 --bruteforce 25 --lang pt
+cat /var/log/auth.log | tools/log_parser.py -
+tools/log_parser.py access.log --json | jq '.suspicious[]'
+```
+
+## `email_forensics.py`
+
+Phishing-investigation tool for `.eml` files. Uses the stdlib `email` module (BytesParser + `policy.default`) to parse the headers and runs targeted checks: SPF/DKIM/DMARC verdicts from `Authentication-Results`, From/Return-Path/Reply-To domain consistency, display-name impersonation against 13 known brands (PayPal, Microsoft, Apple, Google, Amazon, etc.), Received-chain timestamp anomalies, and missing-headers flags. Reconstructs the Received chain in chronological order with originating IP per hop.
+
+Inspired by curriculum unit UC01485 (forensic analysis of cyber-incidents).
+
+```bash
+tools/email_forensics.py phishing.eml
+tools/email_forensics.py phishing.eml --lang pt
+cat suspicious.eml | tools/email_forensics.py -
+tools/email_forensics.py phishing.eml --json | jq '.issues[]'
+```
+
+## `file_hash.py`
+
+Forensic file hashing (chain-of-custody). Computes MD5/SHA-1/SHA-256/SHA-512 (and SHA-3, BLAKE2) in a single pass with 64 KB streaming chunks — handles arbitrarily large files without memory pressure. Four modes:
+
+- **Default** — print hashes for one or more files.
+- **`--verify HASH`** — compare computed hash against an expected value (exit 0 = match, 1 = mismatch).
+- **`--save FILE`** — write a GNU-coreutils-style manifest (`<hash>  <filename>`) for later verification.
+- **`--check FILE`** — verify all files listed in a manifest, reporting OK / MISMATCH / MISSING per entry.
+
+Inspired by curriculum unit UC01489 (digital forensic collection and analysis — preserving evidence integrity).
+
+```bash
+tools/file_hash.py evidence.bin
+tools/file_hash.py evidence.bin --algos sha256,sha3_256
+tools/file_hash.py evidence.bin --verify 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+tools/file_hash.py *.bin --save manifest.sha256
+tools/file_hash.py --check manifest.sha256 --lang pt
+cat document.pdf | tools/file_hash.py -
+```
+
 ## `project_sync.sh`
 
 Helper for keeping the claude.ai Project knowledge in sync with this repo. Run it after editing `CLAUDE.md` or `SESSION_LOG.md`. It:

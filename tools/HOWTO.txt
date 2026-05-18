@@ -99,14 +99,19 @@ TABLE OF CONTENTS · ÍNDICE
      6.1 multidecode.py         Base64/hex/URL/binary/ROT13 (+ cascade)
      6.2 xor_crack.py           Single-byte and multi-byte XOR recovery
 
-  7. ORCHESTRATION
-     7.1 recon.py               Subfinder + headers + TLS + cookies + DNS
+  7. LOG ANALYSIS & FORENSICS
+     7.1 log_parser.py          Log normalisation + brute-force / scanner detection
+     7.2 email_forensics.py     .eml header analysis (SPF/DKIM/DMARC, impersonation)
+     7.3 file_hash.py           Forensic file hashing (MD5/SHA, verify, manifests)
 
-  8. HACKTHEBOX
-     8.1 htb_stats.py           Badge markdown + optional profile stats
+  8. ORCHESTRATION
+     8.1 recon.py               Subfinder + headers + TLS + cookies + DNS
 
-  9. PORTFOLIO
-     9.1 new_writeup.py         Generate Chirpy writeup skeleton
+  9. HACKTHEBOX
+     9.1 htb_stats.py           Badge markdown + optional profile stats
+
+  10. PORTFOLIO
+     10.1 new_writeup.py        Generate Chirpy writeup skeleton
 
 ================================================================================
 1. WEB RECONNAISSANCE
@@ -2487,12 +2492,426 @@ TABLE OF CONTENTS · ÍNDICE
       XOR é inquebrável. A tabela IC fica plana em 0.038 (aleatório).
 
 ================================================================================
-7. ORCHESTRATION
+7. LOG ANALYSIS & FORENSICS
+================================================================================
+   [log_parser, email_forensics, file_hash]
+
+--------------------------------------------------------------------------------
+7.1 log_parser.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Parse a log file (Apache/nginx access, syslog, or generic text) and
+    extract & normalise the high-value fields: IPv4/IPv6 addresses,
+    email addresses, domains, URLs/paths, status codes, and timestamps.
+    Aggregates top-N counts per category, classifies IPs (private /
+    public / loopback / link-local), and flags suspicious patterns:
+    brute-force (≥N 4xx responses from one IP), scanner activity (one
+    IP touching >50 unique paths), and BOTNET-style hits on sensitive
+    paths (.env, .git, wp-admin, etc.). Streams line-by-line so it
+    handles multi-GB log files without loading them.
+
+    Inspired by the Portuguese CET Cybersecurity curriculum units
+    UC01481 (cybersecurity scripting) and UC01482 (log normalisation
+    and filtering).
+
+[EN] QUICK START
+    $ tools/log_parser.py access.log
+
+[EN] EXAMPLES
+    # Scenario 1 — quick audit of an Apache access log
+    $ tools/log_parser.py access.log
+    Expected output (truncated):
+        Log: access.log
+        Lines parsed: 12,453
+
+        IPs (top 10):
+          192.168.1.100     2,341  (private)
+          185.220.101.5       876  (public)
+
+        URLs / paths (top 10):
+          /api/login       5,234
+          /.env               45  [SENSITIVE]
+
+        Suspicious patterns (3):
+          ✗ Brute-force suspect: 185.220.101.5 → 187 4xx responses
+
+    # Scenario 2 — pipe from syslog
+    $ cat /var/log/auth.log | tools/log_parser.py - --top 5 --lang pt
+
+    # Scenario 3 — JSON output for SIEM ingestion
+    $ tools/log_parser.py access.log --json | \
+        jq '.suspicious[] | select(.kind == "bruteforce")'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --top N           Top-N items per category. Default 10.
+    --bruteforce N    Threshold of 4xx responses per IP to flag a
+                      brute-force suspect. Default 10.
+
+[EN] EXIT CODES
+    0  Parsed successfully, no suspicious patterns
+    1  Suspicious patterns detected
+    2  Usage error (file not found, empty stdin in tty)
+
+[EN] TIPS
+    - For Apache/nginx access logs the fast-path regex extracts
+      IP+timestamp+method+path+status in one pass — much faster than
+      running all category regexes per line.
+    - Brute-force threshold is per-IP across the whole file. For very
+      large logs spanning days, raise it (e.g. --bruteforce 100).
+    - Pair with ip_reputation if you've added one — feed the top public
+      IPs into a DNSBL check to spot known-bad ranges.
+
+[PT] PROPÓSITO
+    Analisa um ficheiro de log (access do Apache/nginx, syslog, ou
+    texto genérico) e extrai e normaliza os campos de valor: endereços
+    IPv4/IPv6, emails, domínios, URLs/paths, status codes e timestamps.
+    Agrega contagens top-N por categoria, classifica IPs (privado /
+    público / loopback / link-local), e sinaliza padrões suspeitos:
+    brute-force (≥N respostas 4xx do mesmo IP), atividade de scanner
+    (um IP a tocar em >50 paths únicos), e padrões tipo BOTNET em
+    paths sensíveis (.env, .git, wp-admin, etc.). Faz streaming
+    linha-a-linha — aguenta logs de vários GB sem carregar.
+
+    Inspirado pelas unidades UC01481 (scripts em cibersegurança) e
+    UC01482 (normalização e filtragem de logs) do currículo CET
+    português de Técnico Especialista em Cibersegurança.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/log_parser.py access.log
+
+[PT] EXEMPLOS
+    # Cenário 1 — auditoria rápida a um access log do Apache
+    $ tools/log_parser.py access.log --lang pt
+    Output esperado (truncado):
+        Log: access.log
+        Linhas analisadas: 12.453
+
+        IPs (top 10):
+          192.168.1.100     2.341  (privado)
+          185.220.101.5       876  (público)
+
+        URLs / caminhos (top 10):
+          /api/login       5.234
+          /.env               45  [SENSÍVEL]
+
+        Padrões suspeitos (3):
+          ✗ Suspeita de brute-force: 185.220.101.5 → 187 respostas 4xx
+
+    # Cenário 2 — pipe a partir de syslog
+    $ cat /var/log/auth.log | tools/log_parser.py - --top 5 --lang pt
+
+    # Cenário 3 — output JSON para ingestão em SIEM
+    $ tools/log_parser.py access.log --json | \
+        jq '.suspicious[] | select(.kind == "bruteforce")'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --top N          Itens top-N por categoria. Por omissão 10.
+    --bruteforce N   Limiar de respostas 4xx por IP para sinalizar
+                     suspeita de brute-force. Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Parsing OK, nenhum padrão suspeito
+    1  Padrões suspeitos detetados
+    2  Erro de uso (ficheiro inexistente, stdin vazio num tty)
+
+[PT] DICAS
+    - Em logs de access Apache/nginx, a regex de fast-path extrai
+      IP+timestamp+method+path+status numa só passagem — muito mais
+      rápido do que correr todos os regex de categoria por linha.
+    - O limiar de brute-force é por IP em todo o ficheiro. Para logs
+      muito grandes (vários dias), aumenta (ex: --bruteforce 100).
+    - Combina com ip_reputation (se vier a existir) — alimenta os top
+      IPs públicos a um DNSBL para spotar ranges conhecidos como mal.
+
+--------------------------------------------------------------------------------
+7.2 email_forensics.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Phishing-investigation tool for .eml files. Parses email headers
+    with the stdlib `email` module (BytesParser + policy.default) and
+    runs targeted checks: SPF/DKIM/DMARC verdicts extracted from
+    `Authentication-Results`; From / Return-Path / Reply-To domain
+    consistency; display-name impersonation against 13 known brands
+    (PayPal, Microsoft, Apple, Google, Amazon, Netflix, LinkedIn,
+    Facebook, etc.); Received-chain timestamp anomalies (time skew);
+    missing-Received-headers. Reconstructs the Received chain in
+    chronological order with originating IP per hop.
+
+    Inspired by the Portuguese CET Cybersecurity curriculum unit
+    UC01485 (forensic analysis of cyber-incidents — including email
+    forensics).
+
+[EN] QUICK START
+    $ tools/email_forensics.py phishing.eml
+
+[EN] EXAMPLES
+    # Scenario 1 — analyse a suspect .eml file
+    $ tools/email_forensics.py phishing.eml
+    Expected output (truncated):
+        Email file: phishing.eml
+        From:    "PayPal Support" <support@paypa1-secure.com>
+        Subject: Account suspended - act now
+        Return-Path: <bounce@suspicious-mailer.tld>
+
+        Received chain (3 hops, oldest first):
+          1. mailer.evil.tld [185.220.101.5]
+             → suspicious-mailer.tld
+             2024-01-15 14:31:55 UTC
+          ...
+
+        Authentication:
+          SPF: ✗ fail  DKIM: ✗ fail  DMARC: ✗ fail
+
+        Issues found (5):
+          ✗ [HIGH] Display name impersonates PayPal but sender
+            domain is paypa1-secure.com
+
+    # Scenario 2 — pipe a raw .eml from your mail client
+    $ cat ~/Downloads/suspicious.eml | tools/email_forensics.py - --lang pt
+
+    # Scenario 3 — extract just the high-severity issues as JSON
+    $ tools/email_forensics.py phishing.eml --json | \
+        jq '.issues[] | select(.risk == "high")'
+
+[EN] FLAGS
+    No tool-specific flags. Universals only: --lang, --json, --version.
+
+[EN] EXIT CODES
+    0  No phishing indicators found
+    1  Issues detected (SPF/DKIM/DMARC failure, mismatch, impersonation)
+    2  Usage error (file not found, malformed .eml)
+
+[EN] TIPS
+    - The "Authentication-Results" header is set by the receiving MTA
+      — if you've saved the .eml from the recipient's mailbox, you're
+      reading the receiver's verdict (which is what matters).
+    - Display-name impersonation catches "PayPal Support
+      <attacker@x.com>" but NOT a perfect lookalike domain like
+      paypa1.com vs paypal.com — use tech_fingerprint and visual
+      review for that.
+    - The Received chain is parsed best-effort. Non-standard MTAs
+      sometimes omit fields; the chain may have missing IPs but the
+      sequence still tells the story.
+
+[PT] PROPÓSITO
+    Ferramenta de investigação de phishing para ficheiros .eml. Faz
+    parse dos headers com o módulo `email` da stdlib (BytesParser +
+    policy.default) e corre checks específicos: verdicts SPF/DKIM/DMARC
+    extraídos dos `Authentication-Results`; consistência de domínio
+    entre From / Return-Path / Reply-To; deteção de display-name
+    impersonation contra 13 marcas conhecidas (PayPal, Microsoft,
+    Apple, Google, Amazon, Netflix, LinkedIn, Facebook, etc.);
+    anomalias de timestamp na cadeia Received (time skew); falta de
+    Received headers. Reconstrói a cadeia Received por ordem
+    cronológica com o IP de origem em cada salto.
+
+    Inspirado pela unidade UC01485 (análise forense de incidentes
+    cibernéticos — incluindo forense de email) do currículo CET
+    português de Técnico Especialista em Cibersegurança.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/email_forensics.py phishing.eml
+
+[PT] EXEMPLOS
+    # Cenário 1 — analisar um ficheiro .eml suspeito
+    $ tools/email_forensics.py phishing.eml --lang pt
+    Output esperado (truncado):
+        Ficheiro do email: phishing.eml
+        From:    "PayPal Support" <support@paypa1-secure.com>
+        Assunto: Conta suspensa - agir agora
+        Return-Path: <bounce@suspicious-mailer.tld>
+
+        Cadeia Received (3 saltos, do mais antigo):
+          1. mailer.evil.tld [185.220.101.5]
+             → suspicious-mailer.tld
+             2024-01-15 14:31:55 UTC
+
+        Autenticação:
+          SPF: ✗ fail  DKIM: ✗ fail  DMARC: ✗ fail
+
+        Problemas encontrados (5):
+          ✗ [HIGH] Display name passa-se por PayPal mas o domínio
+            do remetente é paypa1-secure.com
+
+    # Cenário 2 — pipe um .eml directo do cliente de email
+    $ cat ~/Downloads/suspicious.eml | tools/email_forensics.py - --lang pt
+
+    # Cenário 3 — extrair só as issues high como JSON
+    $ tools/email_forensics.py phishing.eml --json | \
+        jq '.issues[] | select(.risk == "high")'
+
+[PT] FLAGS
+    Sem flags específicas. Só as universais: --lang, --json, --version.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Sem indicadores de phishing
+    1  Issues detetadas (SPF/DKIM/DMARC falha, mismatch, impersonation)
+    2  Erro de uso (ficheiro inexistente, .eml malformado)
+
+[PT] DICAS
+    - O header "Authentication-Results" é posto pelo MTA recetor — se
+      guardaste o .eml da mailbox do destinatário, estás a ler o
+      verdict do recetor (que é o que interessa).
+    - A deteção de display-name impersonation apanha "PayPal Support
+      <attacker@x.com>" mas NÃO um domínio lookalike perfeito como
+      paypa1.com vs paypal.com — para esses, usa tech_fingerprint e
+      inspeção visual.
+    - A cadeia Received é parseada best-effort. MTAs não-standard às
+      vezes omitem campos; a cadeia pode ter IPs em falta mas a
+      sequência ainda conta a história.
+
+--------------------------------------------------------------------------------
+7.3 file_hash.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Forensic file hashing for chain-of-custody. Computes MD5, SHA-1,
+    SHA-256, SHA-512 (plus SHA-3 and BLAKE2 variants) in a single pass
+    with 64 KB streaming chunks — handles arbitrarily large files
+    without memory pressure. Four modes:
+
+      - default        Print hashes for one or more files
+      - --verify HASH  Compare against an expected hash (exit 0/1)
+      - --save FILE    Write a GNU-style hash manifest
+      - --check FILE   Verify all files in a manifest, report
+                       OK / MISMATCH / MISSING per entry
+
+    Inspired by the Portuguese CET Cybersecurity curriculum unit
+    UC01489 (digital forensic collection and analysis — evidence
+    integrity).
+
+[EN] QUICK START
+    $ tools/file_hash.py evidence.bin
+
+[EN] EXAMPLES
+    # Scenario 1 — multi-hash an evidence file
+    $ tools/file_hash.py evidence.bin
+    Expected output (truncated):
+        File: evidence.bin
+        Size: 1,234,567 bytes (1.18 MiB)
+          MD5:     5d41402abc4b2a76b9719d911017c592
+          SHA-1:   aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d
+          SHA-256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73...
+          SHA-512: 9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2d...
+
+    # Scenario 2 — save and later verify a manifest
+    $ tools/file_hash.py *.bin --save manifest.sha256
+    Manifest saved: manifest.sha256 (4 files, sha256)
+    $ tools/file_hash.py --check manifest.sha256
+        ✓ evidence.bin
+        ✗ tampered.bin   [MISMATCH — expected 2cf24d..., got 5a8c91...]
+        ! missing.bin    [FILE NOT FOUND]
+        Summary: 1 OK, 1 mismatch, 1 missing
+
+    # Scenario 3 — verify a single download against a published hash
+    $ tools/file_hash.py installer.iso \
+        --verify 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73...
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --algos LIST   Comma-separated algorithms. Default
+                   md5,sha1,sha256,sha512. Any name accepted by
+                   hashlib.new() works (sha3_256, blake2b, etc.).
+    --verify HASH  Compare with this hash. Uses the first --algos.
+                   Mutually exclusive with --save and --check.
+    --save FILE    Write a GNU coreutils-style manifest (<hash>  <name>).
+                   Mutually exclusive with --verify and --check.
+    --check FILE   Verify files listed in a manifest. Mutually exclusive
+                   with --verify and --save.
+
+[EN] EXIT CODES
+    0  All hashes computed (default) / match (verify) / all OK (check)
+    1  Mismatch (verify or check) or any check entry failed
+    2  Usage error (file not found, invalid algorithm, IO error)
+
+[EN] TIPS
+    - Always hash evidence BEFORE working on it. The hash establishes
+      that downstream analysis touched the same bytes.
+    - Manifest format is interoperable with GNU coreutils — you can
+      verify with `sha256sum -c manifest.sha256` on Linux too.
+    - For very large files (multi-GB), the streaming I/O is what makes
+      this safe to run on a workstation with limited RAM.
+
+[PT] PROPÓSITO
+    Hashing forense de ficheiros para cadeia de custódia (chain-of-
+    custody). Calcula MD5, SHA-1, SHA-256, SHA-512 (mais SHA-3 e
+    variantes BLAKE2) numa só passagem com chunks de 64 KB em streaming
+    — aguenta ficheiros de qualquer tamanho sem pressão de memória.
+    Quatro modos:
+
+      - default        Imprime hashes de um ou mais ficheiros
+      - --verify HASH  Compara contra um hash esperado (exit 0/1)
+      - --save FILE    Escreve um manifesto estilo GNU
+      - --check FILE   Verifica os ficheiros listados num manifesto,
+                       reporta OK / NÃO CORRESPONDE / EM FALTA por entrada
+
+    Inspirado pela unidade UC01489 (recolha e análise forense digital
+    — integridade da prova) do currículo CET português de Técnico
+    Especialista em Cibersegurança.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/file_hash.py evidence.bin
+
+[PT] EXEMPLOS
+    # Cenário 1 — multi-hash a um ficheiro de prova
+    $ tools/file_hash.py evidence.bin --lang pt
+    Output esperado (truncado):
+        Ficheiro: evidence.bin
+        Tamanho:  1.234.567 bytes (1.18 MiB)
+          MD5:     5d41402abc4b2a76b9719d911017c592
+          SHA-1:   aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d
+          SHA-256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73...
+
+    # Cenário 2 — guardar e mais tarde verificar um manifesto
+    $ tools/file_hash.py *.bin --save manifest.sha256 --lang pt
+    Manifesto guardado: manifest.sha256 (4 ficheiros, sha256)
+    $ tools/file_hash.py --check manifest.sha256 --lang pt
+        ✓ evidence.bin
+        ✗ tampered.bin   [NÃO CORRESPONDE — esperado ..., obtido ...]
+        ! missing.bin    [FICHEIRO NÃO ENCONTRADO]
+        Sumário: 1 OK, 1 incorreto, 1 em falta
+
+    # Cenário 3 — verificar um download contra um hash publicado
+    $ tools/file_hash.py installer.iso --lang pt \
+        --verify 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73...
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --algos LISTA   Algoritmos separados por vírgula. Por omissão
+                    md5,sha1,sha256,sha512. Qualquer nome aceite por
+                    hashlib.new() funciona (sha3_256, blake2b, etc.).
+    --verify HASH   Compara com este hash. Usa o primeiro de --algos.
+                    Mutuamente exclusivo com --save e --check.
+    --save FICHEIRO Escreve um manifesto estilo GNU coreutils
+                    (<hash>  <nome>). Mutuamente exclusivo com
+                    --verify e --check.
+    --check FICHEIRO Verifica os ficheiros listados num manifesto.
+                    Mutuamente exclusivo com --verify e --save.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Todos os hashes calculados (default) / match (verify) / tudo OK (check)
+    1  Mismatch (verify ou check) ou alguma entrada do check falhou
+    2  Erro de uso (ficheiro inexistente, algoritmo inválido, erro de IO)
+
+[PT] DICAS
+    - Faz sempre hash da prova ANTES de trabalhar nela. O hash
+      estabelece que a análise downstream tocou nos mesmos bytes.
+    - O formato do manifesto é interoperável com o GNU coreutils —
+      podes também verificar com `sha256sum -c manifest.sha256` em Linux.
+    - Para ficheiros muito grandes (vários GB), o I/O em streaming é
+      o que torna seguro correr numa workstation com pouca RAM.
+
+================================================================================
+8. ORCHESTRATION
 ================================================================================
    [recon]
 
 --------------------------------------------------------------------------------
-7.1 recon.py
+8.1 recon.py
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
@@ -2595,12 +3014,12 @@ TABLE OF CONTENTS · ÍNDICE
       as tabelas.
 
 ================================================================================
-8. HACKTHEBOX
+9. HACKTHEBOX
 ================================================================================
    [htb_stats]
 
 --------------------------------------------------------------------------------
-8.1 htb_stats.py
+9.1 htb_stats.py
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
@@ -2706,12 +3125,12 @@ TABLE OF CONTENTS · ÍNDICE
       estatísticas. O URL do badge é estável.
 
 ================================================================================
-9. PORTFOLIO
+10. PORTFOLIO
 ================================================================================
    [new_writeup]
 
 --------------------------------------------------------------------------------
-9.1 new_writeup.py
+10.1 new_writeup.py
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
