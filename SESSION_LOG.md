@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt).
+Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path_scan + subdomain_takeover).
 
 ---
 
@@ -29,6 +29,8 @@ Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt).
 - Deleted the stale branch on origin once everything valuable was on main. Kept a local tag `stale-branch-tip` for one session as a safety net (delete later).
 
 - Created `tools/HOWTO.txt` — single bilingual (EN + PT-PT) long-form tutorial for all 22 tools (~2555 lines). Structure: universal conventions → table of contents → 9 categories → 22 tool entries, each with PURPOSE, QUICK START, 3 real scenarios with expected output, FLAGS, EXIT CODES, and TIPS. Updated `tools/README.md` (quick-reference note), `SESSION_LOG.md` glossary, and `CLAUDE.md` to reference it. Merged to `main`.
+- Created `tools/guia-ferramentas.pdf` (+ `.md` source + `.html` printable) — PT-PT layperson-friendly guide for non-technical readers. PDF generated with pandoc + XeLaTeX (selectable text).
+- Added 2 new tools (total now 24): `path_scan.py` (gobuster-style path/directory discovery, 75-path built-in wordlist, threaded, risk-flagging) and `subdomain_takeover.py` (dangling-CNAME takeover detection, raw-UDP CNAME resolver, 16 service fingerprints, crt.sh auto-enumeration). README + HOWTO + SESSION_LOG + CLAUDE all updated together (per the durable rule below).
 
 **Lesson learned, documented in CLAUDE.md and feedback memory:** Parallel sessions without CLAUDE.md context are dangerous. The mitigation is the claude.ai Project — re-upload CLAUDE.md + SESSION_LOG.md whenever they change so every device's chat sees the same state.
 
@@ -74,7 +76,7 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (22 tools in `tools/` + shared `_lib.py`)
+### Toolchain (24 tools in `tools/` + shared `_lib.py`)
 
 All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
@@ -102,6 +104,8 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `password_strength.py` | Entropy + HIBP k-anonymity check (full password never leaves machine) |
 | `cve_lookup.py` | Fetch CVE details from NVD v2 API |
 | `xor_crack.py` | XOR ciphertext recovery (single + multi-byte via frequency analysis) |
+| `path_scan.py` | Wordlist-based HTTP path/directory discovery (gobuster-style, threaded, risk-flagged) |
+| `subdomain_takeover.py` | Dangling-CNAME subdomain takeover detection (16 service fingerprints, crt.sh enum) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.

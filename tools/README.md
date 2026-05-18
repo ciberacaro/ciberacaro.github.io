@@ -180,6 +180,35 @@ tools/subfinder.py example.com --skip-bruteforce   # only crt.sh
 tools/subfinder.py example.com --threads 20 --jitter 0.3   # tune for your resolver
 ```
 
+## `path_scan.py`
+
+Discover hidden paths and directories on a web server. Stdlib equivalent of gobuster/dirb-style scanners — concurrent HTTP probes (default 10 threads) over a built-in 75-path wordlist (admin panels, backups, `.env`, `.git/config`, `wp-config.php`, `phpmyadmin`, Spring Actuator endpoints, etc.). Flags dangerous findings (env files, exposed `.git`, backups, admin panels, private-key files) with a risk level.
+
+Supports external wordlists (`--wordlist`), extension expansion (`--extensions php,html,bak`), custom status-code filtering (`--codes`), and tunable concurrency. A 403 on a sensitive path still reports — the directory exists even if not directly readable.
+
+```bash
+tools/path_scan.py https://example.com
+tools/path_scan.py https://example.com --extensions php,bak --threads 20
+tools/path_scan.py https://example.com --wordlist /usr/share/wordlists/dirb/common.txt --lang pt
+tools/path_scan.py https://example.com --codes 200,301,302 --json
+```
+
+## `subdomain_takeover.py`
+
+Detect subdomains vulnerable to takeover — where a CNAME points to a third-party service that's no longer registered (forgotten GitHub Pages site, dead Heroku app, abandoned S3 bucket). An attacker can register that orphaned service and serve content under the original domain.
+
+Workflow: enumerate subdomains (crt.sh automatically, or supply your own list via `--subdomains FILE`/`-`), resolve CNAMEs via raw UDP/53 (full pointer decompression, no `dnspython` needed), match against 16 service patterns (GitHub Pages, Heroku, Netlify, AWS S3, Azure, Fastly, Ghost, Surge, ReadMe, Shopify, Zendesk, Tumblr, WP Engine, Squarespace, Fly.io, Azure CloudApp), then HTTP-probe for the service's "unclaimed" fingerprint string before flagging.
+
+```bash
+tools/subdomain_takeover.py example.com
+tools/subdomain_takeover.py example.com --lang pt
+tools/subfinder.py example.com --json | jq -r '.resolved[].host' | \
+  tools/subdomain_takeover.py example.com --subdomains -
+tools/subdomain_takeover.py example.com --json
+```
+
+⚠️ When a real vulnerable subdomain is found: do NOT register the service yourself unless authorised. Report via the organisation's responsible-disclosure / VDP channel.
+
 ## `htb_stats.py`
 
 Generate HackTheBox profile-badge markdown ready to paste into a README or post (no API token needed). Optionally fetch profile stats (rank, points, owns, respects) via the HTB v4 API when you set `HTB_TOKEN` or pass `--token`.

@@ -74,12 +74,14 @@ TABLE OF CONTENTS · ÍNDICE
      1.5 robots_check.py        robots.txt + sitemap.xml recon
      1.6 header_diff.py         Snapshot + diff headers over time
      1.7 tech_fingerprint.py    Wappalyzer-lite (server, CMS, framework)
+     1.8 path_scan.py           Wordlist-based path/directory discovery
 
   2. DNS & NETWORK
      2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
      2.2 subfinder.py           Subdomain enumeration (crt.sh + wordlist)
      2.3 whois_check.py         WHOIS lookup + expiry / DNSSEC flags
      2.4 wayback_check.py       Wayback Machine snapshots & timeline
+     2.5 subdomain_takeover.py  Dangling-CNAME subdomain takeover check
 
   3. TLS & CERTIFICATES
      3.1 tls_inspect.py         Cert info + accepted TLS versions
@@ -110,7 +112,7 @@ TABLE OF CONTENTS · ÍNDICE
 1. WEB RECONNAISSANCE
 ================================================================================
    [check_headers, cookie_check, cors_check, http_methods, robots_check,
-    header_diff, tech_fingerprint]
+    header_diff, tech_fingerprint, path_scan]
 
 --------------------------------------------------------------------------------
 1.1 check_headers.py
@@ -876,10 +878,133 @@ TABLE OF CONTENTS · ÍNDICE
     - Os meta generator (`<meta name="generator" content="...">`) são um
       dos sinais mais fiáveis — e os mais fáceis do dono do site remover.
 
+--------------------------------------------------------------------------------
+1.8 path_scan.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Discover hidden paths and directories on a web server by trying a
+    wordlist of common names (admin panels, backup files, config files,
+    .git/, .env, etc.). A simplified Python-stdlib equivalent of
+    gobuster/dirb. Concurrent HTTP probes with a 75-path built-in
+    wordlist plus optional external wordlist and extension expansion.
+    Flags dangerous findings (env files, exposed .git, backups, admin
+    panels, Spring Actuator endpoints, private keys) with a risk level.
+
+[EN] QUICK START
+    $ tools/path_scan.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — baseline path discovery with the built-in wordlist
+    $ tools/path_scan.py https://example.com
+    Expected output (truncated):
+        Target: https://example.com
+        Wordlist: builtin (75 paths) | 0 extensions | 10 threads
+
+        Findings (3):
+          200  /admin/         [MEDIUM] admin_panel
+          200  /.env           [HIGH]   env_file
+          403  /.git/config    [HIGH]   git_exposed
+
+    # Scenario 2 — append extensions, custom threads
+    $ tools/path_scan.py https://example.com --extensions php,bak --threads 20
+
+    # Scenario 3 — external wordlist + JSON for piping
+    $ tools/path_scan.py https://example.com \
+        --wordlist /usr/share/wordlists/dirb/common.txt --json | \
+        jq '.findings[] | select(.risk_level == "high")'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --wordlist FILE       External wordlist (one path per line, # = comment).
+    --extensions LIST     Comma-separated extensions appended to each path
+                          (e.g. `php,html,bak`). Path also tried without ext.
+    --threads N           Concurrent probes. Default 10.
+    --timeout SECS        Per-request timeout. Default 5.
+    --codes LIST          Comma-separated status codes to report. Default
+                          200,201,204,301,302,307,308,401,403,405.
+
+[EN] EXIT CODES
+    0  No findings (nothing returned a reportable status code)
+    1  Findings reported
+    2  Bad URL or wordlist file not found
+    3  Network error
+
+[EN] TIPS
+    - Built-in wordlist is small (75 paths) — biased for high-value finds.
+      For real recon, pair with SecLists `directory-list-2.3-small.txt`.
+    - 403 on `.git/config` still counts as exposed — the directory exists.
+    - Pair with tech_fingerprint to bias the wordlist: PHP site? add
+      `--extensions php,phps,bak`. Java site? try `actuator/*` paths.
+    - The 200,301,302,401,403 list is a recon trade-off — drop 401/403
+      with `--codes 200,301,302` if you only want directly-readable hits.
+
+[PT] PROPÓSITO
+    Descobre caminhos e diretórios escondidos num servidor web testando
+    uma wordlist de nomes comuns (paineis de admin, backups, ficheiros
+    de config, .git/, .env, etc.). Equivalente simplificado em stdlib do
+    gobuster/dirb. Probes HTTP concorrentes com uma wordlist interna de
+    75 caminhos, mais wordlist externa opcional e expansão por extensão.
+    Sinaliza findings perigosos (ficheiros env, .git exposto, backups,
+    paineis de admin, endpoints do Spring Actuator, chaves privadas)
+    com um nível de risco.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/path_scan.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — descoberta base com a wordlist interna
+    $ tools/path_scan.py https://example.com --lang pt
+    Output esperado (truncado):
+        Alvo: https://example.com
+        Wordlist: integrada (75 caminhos) | 0 extensões | 10 threads
+
+        Resultados (3):
+          200  /admin/         [MÉDIO]  admin_panel
+          200  /.env           [ALTO]   env_file
+          403  /.git/config    [ALTO]   git_exposed
+
+    # Cenário 2 — extensões adicionais e mais threads
+    $ tools/path_scan.py https://example.com --extensions php,bak \
+        --threads 20 --lang pt
+
+    # Cenário 3 — wordlist externa + JSON para pipeline
+    $ tools/path_scan.py https://example.com \
+        --wordlist /usr/share/wordlists/dirb/common.txt --json | \
+        jq '.findings[] | select(.risk_level == "high")'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --wordlist FICHEIRO   Wordlist externa (um caminho por linha, # = comentário).
+    --extensions LISTA    Extensões separadas por vírgula adicionadas a
+                          cada caminho (ex: `php,html,bak`). O caminho
+                          também é testado sem extensão.
+    --threads N           Probes concorrentes. Por omissão 10.
+    --timeout SEGUNDOS    Timeout por pedido. Por omissão 5.
+    --codes LISTA         Status codes a reportar, separados por vírgula.
+                          Por omissão 200,201,204,301,302,307,308,401,403,405.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Sem findings (nada devolveu um status code de relevo)
+    1  Findings reportados
+    2  URL inválido ou ficheiro de wordlist não encontrado
+    3  Erro de rede
+
+[PT] DICAS
+    - Wordlist interna é pequena (75 caminhos) — enviesada para findings
+      de alto valor. Para recon a sério, combina com a SecLists
+      `directory-list-2.3-small.txt`.
+    - 403 em `.git/config` continua a contar como exposto — o diretório
+      existe.
+    - Combina com tech_fingerprint para enviesar a wordlist: site em PHP?
+      `--extensions php,phps,bak`. Site em Java? testa `actuator/*`.
+    - A lista 200,301,302,401,403 é um trade-off de recon — baixa para
+      `--codes 200,301,302` se só quiseres acertos diretamente legíveis.
+
 ================================================================================
 2. DNS & NETWORK
 ================================================================================
-   [dns_records, subfinder, whois_check, wayback_check]
+   [dns_records, subfinder, whois_check, wayback_check, subdomain_takeover]
 
 --------------------------------------------------------------------------------
 2.1 dns_records.py
@@ -1309,6 +1434,141 @@ TABLE OF CONTENTS · ÍNDICE
       snapshot.
     - --diff é baseado em texto — funciona bem em HTML/JSON, mal em
       assets.
+
+--------------------------------------------------------------------------------
+2.5 subdomain_takeover.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Detect subdomains vulnerable to takeover — where a CNAME points to
+    a third-party service that is no longer registered (e.g. a forgotten
+    GitHub Pages site, Heroku app, S3 bucket). An attacker can register
+    that orphaned service and serve content under the original domain.
+    Workflow: enumerate subdomains (crt.sh, or supply your own list),
+    resolve CNAMEs via raw UDP DNS, match against 16 service patterns,
+    confirm by HTTP-probing for the service's "unclaimed" fingerprint.
+
+[EN] QUICK START
+    $ tools/subdomain_takeover.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — auto-enumerate via crt.sh
+    $ tools/subdomain_takeover.py example.com
+    Expected output (truncated):
+        Domain: example.com
+        Subdomains checked: 12
+
+        Vulnerable (2):
+          dev.example.com
+            CNAME  → dev-example.github.io
+            Service: GitHub Pages
+            Status: VULNERABLE — unclaimed service detected
+
+          old.example.com
+            CNAME  → old-example.herokudns.com
+            Service: Heroku
+            Status: VULNERABLE — unclaimed service detected
+
+    # Scenario 2 — supply your own list (e.g. from subfinder)
+    $ tools/subfinder.py example.com --json | \
+        jq -r '.resolved[].host' | \
+        tools/subdomain_takeover.py example.com --subdomains -
+
+    # Scenario 3 — JSON output for reporting
+    $ tools/subdomain_takeover.py example.com --json | \
+        jq '.results[] | select(.vulnerable == true)'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --subdomains FILE  List of subdomains, one per line. '-' = stdin.
+                       If omitted, crt.sh is queried for the domain.
+    --timeout SECS     DNS + HTTP per-operation timeout. Default 5.
+
+[EN] EXIT CODES
+    0  No vulnerable subdomains detected
+    1  At least one vulnerable subdomain detected
+    2  Bad domain or unreadable subdomains file
+    3  Network error (DNS resolver unreachable, crt.sh down)
+
+[EN] TIPS
+    - Service fingerprint list is 16 entries — the most common takeover
+      vectors (GitHub Pages, Heroku, Netlify, S3, Azure, Fastly, etc.).
+      For a fully comprehensive list, see EdOverflow's `can-i-take-over-xyz`.
+    - CNAME matching alone isn't enough — the HTTP probe must also see
+      the service's "unclaimed" body text. A "Service matched but no
+      confirmation" result usually means the service IS claimed (safe).
+    - Pair with subfinder for the broadest coverage:
+        tools/subfinder.py example.com | tools/subdomain_takeover.py example.com --subdomains -
+    - When you find a real vulnerable subdomain: do NOT register the
+      service yourself unless you have authorisation. Report it via the
+      organisation's responsible-disclosure / VDP channel.
+
+[PT] PROPÓSITO
+    Deteta subdomínios vulneráveis a takeover — onde um CNAME aponta
+    para um serviço externo que já não está registado (ex: um site
+    GitHub Pages esquecido, app Heroku, bucket S3). Um atacante pode
+    registar esse serviço órfão e servir conteúdo sob o domínio
+    original. Fluxo: enumera subdomínios (crt.sh, ou usa a tua lista),
+    resolve CNAMEs por UDP DNS raw, faz match contra 16 padrões de
+    serviços, confirma sondando o site por HTTP à procura da fingerprint
+    de "não registado" do serviço.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/subdomain_takeover.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — auto-enumera via crt.sh
+    $ tools/subdomain_takeover.py example.com --lang pt
+    Output esperado (truncado):
+        Domínio: example.com
+        Subdomínios verificados: 12
+
+        Vulneráveis (2):
+          dev.example.com
+            CNAME  → dev-example.github.io
+            Serviço: GitHub Pages
+            Estado: VULNERÁVEL — serviço não registado detetado
+
+          old.example.com
+            CNAME  → old-example.herokudns.com
+            Serviço: Heroku
+            Estado: VULNERÁVEL — serviço não registado detetado
+
+    # Cenário 2 — usa a tua lista (ex: do subfinder)
+    $ tools/subfinder.py example.com --json | \
+        jq -r '.resolved[].host' | \
+        tools/subdomain_takeover.py example.com --subdomains - --lang pt
+
+    # Cenário 3 — JSON para relatório
+    $ tools/subdomain_takeover.py example.com --json | \
+        jq '.results[] | select(.vulnerable == true)'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --subdomains FICHEIRO  Lista de subdomínios, um por linha. '-' = stdin.
+                           Se omitido, é feita query ao crt.sh para o
+                           domínio.
+    --timeout SEGUNDOS     Timeout DNS + HTTP por operação. Por omissão 5.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhum subdomínio vulnerável detetado
+    1  Pelo menos um subdomínio vulnerável detetado
+    2  Domínio inválido ou ficheiro de subdomínios ilegível
+    3  Erro de rede (resolver DNS inacessível, crt.sh em baixo)
+
+[PT] DICAS
+    - A lista de fingerprints tem 16 entradas — os vetores de takeover
+      mais comuns (GitHub Pages, Heroku, Netlify, S3, Azure, Fastly, etc.).
+      Para lista exaustiva, ver `can-i-take-over-xyz` do EdOverflow.
+    - O CNAME match sozinho não chega — o probe HTTP também tem de ver
+      o texto de "não registado" do serviço. Um resultado "Serviço
+      coincide mas sem confirmação" geralmente significa que o serviço
+      ESTÁ registado (seguro).
+    - Combina com subfinder para a maior cobertura:
+        tools/subfinder.py example.com | tools/subdomain_takeover.py example.com --subdomains -
+    - Quando encontrares um subdomínio realmente vulnerável: NÃO
+      registes tu o serviço sem autorização. Reporta pelo canal de
+      responsible disclosure / VDP da organização.
 
 ================================================================================
 3. TLS & CERTIFICATES

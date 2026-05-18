@@ -84,7 +84,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - ✅ `.claude/settings.json` configured:
   - `defaultMode: "bypassPermissions"` — Claude auto-accepts Bash/edits in this project (Luís opted in). **Be extra careful with destructive operations** — there is no prompt to catch a mistake. Confirm explicitly in chat before any `rm -rf`, `git push --force`, branch deletion, or anything irreversible.
   - `allow: ["Bash(gh run watch *)"]` — read-only allowlist (mostly redundant given bypassPermissions, kept for clarity).
-- ✅ Toolchain at `tools/` (Python 3.8+ stdlib). Shared utilities in `tools/_lib.py`. All tools support `--lang {en,pt}`, `--version`, and stdin via `-`. Networked tools additionally support `--user-agent STRING`. Uniform exit codes (0 ok / 1 issues / 2 usage / 3 network). 22 tools total — see `tools/README.md` for the canonical reference. Notable capabilities after the 2026-05-18 wave: `tls_inspect` enumerates accepted TLS versions (flags SSLv3 / TLS 1.0 / 1.1); `secrets_scan` Shannon-entropy gating; `check_headers` redirect chains; `subfinder` rate-limits DNS bursts; `dns_records` probes AXFR + queries CNAME/SOA; `cookie_check` validates `__Host-`/`__Secure-` prefix rules + long-expiry; `tech_fingerprint` detects WAFs; `xor_crack` for XOR ciphertext recovery (Cryptopals-grade).
+- ✅ Toolchain at `tools/` (Python 3.8+ stdlib). Shared utilities in `tools/_lib.py`. All tools support `--lang {en,pt}`, `--version`, and stdin via `-`. Networked tools additionally support `--user-agent STRING`. Uniform exit codes (0 ok / 1 issues / 2 usage / 3 network). 24 tools total — see `tools/README.md` for the canonical reference. Notable capabilities after the 2026-05-18 wave: `tls_inspect` enumerates accepted TLS versions (flags SSLv3 / TLS 1.0 / 1.1); `secrets_scan` Shannon-entropy gating; `check_headers` redirect chains; `subfinder` rate-limits DNS bursts; `dns_records` probes AXFR + queries CNAME/SOA; `cookie_check` validates `__Host-`/`__Secure-` prefix rules + long-expiry; `tech_fingerprint` detects WAFs; `xor_crack` for XOR ciphertext recovery (Cryptopals-grade); `path_scan` for gobuster-style path discovery; `subdomain_takeover` for dangling-CNAME detection.
   - `new_writeup.py` — generate Chirpy-compatible writeup skeletons.
   - `check_headers.py` — analyze security headers + per-issue risk/fix report.
   - `multidecode.py` — auto-decode Base64/Base32/hex/URL/binary/ROT13, with `--cascade`.
@@ -96,6 +96,8 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - `subfinder.py` — crt.sh + DNS wordlist subdomain enumeration.
   - `htb_stats.py` — HackTheBox badge markdown generator (no token); profile stats with HTB_TOKEN.
   - `header_diff.py` — snapshot + diff security headers over time (builds on check_headers.py).
+  - `path_scan.py` — wordlist-based HTTP path/directory discovery (gobuster-style, threaded, risk-flagged).
+  - `subdomain_takeover.py` — dangling-CNAME subdomain takeover detection (16 service fingerprints, crt.sh enum).
   - See `tools/README.md` for the quick reference per tool, or `tools/HOWTO.txt` for the bilingual long-form tutorial (purpose / examples with expected output / flags / exit codes / tips per tool, EN + PT-PT).
   - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
 - ✅ `tools/HOWTO.txt` published — bilingual (EN + PT-PT) long-form tutorial (~2555 lines) for all 22 tools: purpose, quick-start, 3 real scenarios with expected output, flags, exit codes, tips per tool.
@@ -117,6 +119,12 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - **Cross-machine workflow:** If Luís asks how to resume work on a different PC / web / mobile, point him to the **"How to resume — context portability across machines"** section in `SESSION_LOG.md`. That section covers four scenarios (same Mac, fresh machine, claude.ai web/mobile, mid-session context injection) plus a diagnostic checklist. Don't reinvent the answer here — keep this file lean and link to the source of truth.
 - **Reversibility:** Confirm before destructive actions (force pushes, deleting repos, large refactors).
 - **Verify before claiming success.** Don't assume the live site reflects changes — fetch and check. Note: GitHub CDN caching can lag the build by 1-2 min.
+- **When adding/removing/renaming a tool in `tools/`, ALWAYS update the same four files in the same commit:**
+  1. `tools/README.md` — add/update the quick-reference section (matching the existing format)
+  2. `tools/HOWTO.txt` — add/update the bilingual long-form entry (TOC + category header + full EN + PT-PT block: PURPOSE / QUICK START / 3 EXAMPLES / FLAGS / EXIT CODES / TIPS)
+  3. `SESSION_LOG.md` — update the tool-count line and the "What's built" toolchain table
+  4. `CLAUDE.md` — update the tool count and the bullet list in "Current build state"
+  Skipping any of these four is a regression — the claude.ai Project / future sessions will see an inconsistent state.
 
 ## Useful commands
 
