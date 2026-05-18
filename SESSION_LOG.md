@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18 (Session 3 + portability reference).
+Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt).
 
 ---
 
@@ -27,6 +27,8 @@ Last updated: 2026-05-18 (Session 3 + portability reference).
 - The branch had also DELETED many of our tools (recon, secrets_scan, wayback_check, etc.) — those deletions ignored entirely; main is the canonical state.
 - The branch's modifications to common files were OLDER than main's Session 2 work — nothing useful to bring back.
 - Deleted the stale branch on origin once everything valuable was on main. Kept a local tag `stale-branch-tip` for one session as a safety net (delete later).
+
+- Created `tools/HOWTO.txt` — single bilingual (EN + PT-PT) long-form tutorial for all 22 tools (~2555 lines). Structure: universal conventions → table of contents → 9 categories → 22 tool entries, each with PURPOSE, QUICK START, 3 real scenarios with expected output, FLAGS, EXIT CODES, and TIPS. Updated `tools/README.md` (quick-reference note), `SESSION_LOG.md` glossary, and `CLAUDE.md` to reference it. Merged to `main`.
 
 **Lesson learned, documented in CLAUDE.md and feedback memory:** Parallel sessions without CLAUDE.md context are dangerous. The mitigation is the claude.ai Project — re-upload CLAUDE.md + SESSION_LOG.md whenever they change so every device's chat sees the same state.
 

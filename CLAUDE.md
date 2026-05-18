@@ -73,7 +73,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
 - <https://xct.github.io> — beginner-to-pro trajectory
 - <https://m0chan.github.io> — GitHub Pages + Jekyll, good structure
 
-## Current build state (last updated 2026-05-18)
+## Current build state (last updated 2026-05-18, Session 3 complete)
 
 - ✅ Repo forked from `cotes2020/chirpy-starter`
 - ✅ GitHub Pages enabled (source: GitHub Actions)
@@ -98,6 +98,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - `header_diff.py` — snapshot + diff security headers over time (builds on check_headers.py).
   - See `tools/README.md` for the quick reference per tool, or `tools/HOWTO.txt` for the bilingual long-form tutorial (purpose / examples with expected output / flags / exit codes / tips per tool, EN + PT-PT).
   - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
+- ✅ `tools/HOWTO.txt` published — bilingual (EN + PT-PT) long-form tutorial (~2555 lines) for all 22 tools: purpose, quick-start, 3 real scenarios with expected output, flags, exit codes, tips per tool.
 - ⏳ **Open work items:**
   - First actual writeup (use the generator + fill it in after Luís has CTF content)
   - Avatar image
