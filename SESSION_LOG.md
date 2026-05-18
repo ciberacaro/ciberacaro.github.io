@@ -250,7 +250,8 @@ On claude.ai: check the "last modified" timestamp on the Project knowledge files
 | What's deployed and where | `CLAUDE.md` → "Current build state" |
 | Why we chose X | this file → "Decisions made" |
 | What's pending | this file → "Open work" |
-| How a tool works | `tools/README.md` |
+| How a tool works (quick reference) | `tools/README.md` |
+| How to learn each tool (bilingual long-form tutorial) | `tools/HOWTO.txt` |
 | Shared tool helpers | `tools/_lib.py` |
 | The actual site | `_tabs/`, `_posts/`, `_config.yml` |
 | Local-only project preferences | `.claude/settings.json` |

@@ -96,7 +96,7 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - `subfinder.py` — crt.sh + DNS wordlist subdomain enumeration.
   - `htb_stats.py` — HackTheBox badge markdown generator (no token); profile stats with HTB_TOKEN.
   - `header_diff.py` — snapshot + diff security headers over time (builds on check_headers.py).
-  - See `tools/README.md` for the full usage reference per tool.
+  - See `tools/README.md` for the quick reference per tool, or `tools/HOWTO.txt` for the bilingual long-form tutorial (purpose / examples with expected output / flags / exit codes / tips per tool, EN + PT-PT).
   - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
 - ⏳ **Open work items:**
   - First actual writeup (use the generator + fill it in after Luís has CTF content)

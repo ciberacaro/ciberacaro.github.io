@@ -1,0 +1,2555 @@
+================================================================================
+ciberacaro / portfolio tools — HOWTO
+Bilingual tutorial · tutorial bilingue (EN + PT-PT)
+Last updated: 2026-05-18
+================================================================================
+
+This file is a long-form tutorial for every tool in this directory. For a
+quick cheatsheet, see tools/README.md instead. Each tool is documented in
+English first, then European Portuguese.
+
+Este ficheiro é um tutorial longo para cada tool deste diretório. Para uma
+cheatsheet rápida, vê o tools/README.md. Cada tool está documentado primeiro
+em inglês e depois em português europeu.
+
+================================================================================
+UNIVERSAL CONVENTIONS · CONVENÇÕES UNIVERSAIS
+================================================================================
+
+[EN]
+Every tool here follows the same conventions. Memorise these once and they
+apply to all 22 tools:
+
+  --lang {en,pt}     Output language. Default: en. 'pt' is European
+                     Portuguese (PT-PT, not BR-PT).
+  --json             Machine-readable output (every label, risk, fix is
+                     keyed in JSON). Pipes well into jq.
+  --version          Print version and exit. Centralised in _lib.TOOLS_VERSION.
+  --user-agent STR   Override the outbound User-Agent (networked tools).
+                     Default is "<tool>/<version> (+ciberacaro.github.io)".
+  -                  Anywhere a single positional argument is expected
+                     (URL, domain, hash, JWT, hex string), pass '-' to read
+                     it from stdin. Enables piping: `... | tool -`.
+
+  Exit codes (same everywhere):
+    0   Success — no issues, nothing notable found
+    1   Issues found (missing header, expired cert, alg:none, etc.)
+    2   Usage / argument error (bad URL, empty input, invalid format)
+    3   Network, DNS, or TLS error
+
+  Python 3.8+ standard library only. No `pip install` required.
+
+[PT]
+Cada tool segue as mesmas convenções. Decora-as uma vez e aplicam-se a todos
+os 22 tools:
+
+  --lang {en,pt}     Língua do output. Por omissão: en. 'pt' é português
+                     europeu (PT-PT, não BR-PT).
+  --json             Output legível por máquina (cada etiqueta, risco,
+                     correção tem chave em JSON). Combina bem com jq.
+  --version          Imprime versão e sai. Centralizado em _lib.TOOLS_VERSION.
+  --user-agent STR   Sobrepõe o User-Agent enviado (tools que fazem rede).
+                     Por omissão: "<tool>/<version> (+ciberacaro.github.io)".
+  -                  Onde se espera um argumento posicional único (URL,
+                     domínio, hash, JWT, hex), passar '-' lê de stdin.
+                     Permite pipes: `... | tool -`.
+
+  Códigos de saída (iguais em todos):
+    0   Sucesso — sem problemas, nada de notável
+    1   Problemas encontrados (header em falta, cert expirado, alg:none, etc.)
+    2   Erro de utilização (URL inválido, input vazio, formato errado)
+    3   Erro de rede, DNS, ou TLS
+
+  Python 3.8+, apenas standard library. Sem `pip install`.
+
+================================================================================
+TABLE OF CONTENTS · ÍNDICE
+================================================================================
+
+  1. WEB RECONNAISSANCE
+     1.1 check_headers.py       Security headers audit (HSTS, CSP, etc.)
+     1.2 cookie_check.py        Set-Cookie security flags
+     1.3 cors_check.py          Risky CORS configurations
+     1.4 http_methods.py        Allowed HTTP methods (PUT, TRACE, etc.)
+     1.5 robots_check.py        robots.txt + sitemap.xml recon
+     1.6 header_diff.py         Snapshot + diff headers over time
+     1.7 tech_fingerprint.py    Wappalyzer-lite (server, CMS, framework)
+
+  2. DNS & NETWORK
+     2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
+     2.2 subfinder.py           Subdomain enumeration (crt.sh + wordlist)
+     2.3 whois_check.py         WHOIS lookup + expiry / DNSSEC flags
+     2.4 wayback_check.py       Wayback Machine snapshots & timeline
+
+  3. TLS & CERTIFICATES
+     3.1 tls_inspect.py         Cert info + accepted TLS versions
+
+  4. AUTH & TOKENS
+     4.1 jwt_inspect.py         JWT decode + security flags
+     4.2 hashid.py              Identify hash format(s)
+
+  5. CREDENTIALS & VULNERABILITIES
+     5.1 password_strength.py   Entropy + Have I Been Pwned (k-anonymity)
+     5.2 secrets_scan.py        Filesystem + git history secret scan
+     5.3 cve_lookup.py          NVD CVE v2 API client
+
+  6. CRYPTO / CTF
+     6.1 multidecode.py         Base64/hex/URL/binary/ROT13 (+ cascade)
+     6.2 xor_crack.py           Single-byte and multi-byte XOR recovery
+
+  7. ORCHESTRATION
+     7.1 recon.py               Subfinder + headers + TLS + cookies + DNS
+
+  8. HACKTHEBOX
+     8.1 htb_stats.py           Badge markdown + optional profile stats
+
+  9. PORTFOLIO
+     9.1 new_writeup.py         Generate Chirpy writeup skeleton
+
+================================================================================
+1. WEB RECONNAISSANCE
+================================================================================
+   [check_headers, cookie_check, cors_check, http_methods, robots_check,
+    header_diff, tech_fingerprint]
+
+--------------------------------------------------------------------------------
+1.1 check_headers.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Audit the security-relevant HTTP response headers of a URL: HSTS, CSP,
+    X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-
+    Policy, the three cross-origin headers (COOP/COEP/CORP), plus info-
+    disclosure headers (Server, X-Powered-By). Each missing or weak header
+    is reported with a concrete attack/risk and a one-line fix. Detects
+    redirect chains and warns when the headers describe the destination
+    rather than the origin you asked about.
+
+[EN] QUICK START
+    $ tools/check_headers.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — baseline audit of a target site
+    $ tools/check_headers.py https://ciberacaro.github.io
+    Expected output (truncated):
+        URL: https://ciberacaro.github.io
+        Status: 200
+        Security headers:
+          ✓ Strict-Transport-Security: max-age=31536000; ...
+          ✗ Content-Security-Policy: (missing)
+          ! X-Frame-Options: SAMEORIGIN
+          ...
+        Score: 5/9 headers OK
+        Issues found (4):
+          ✗ Content-Security-Policy missing
+            Risk: no defense-in-depth against XSS injection.
+            Fix:  add `Content-Security-Policy: default-src 'self'; ...`
+
+    # Scenario 2 — machine-readable for piping
+    $ tools/check_headers.py https://example.com --json | jq '.issues[].name'
+
+    # Scenario 3 — PT-PT report ready to paste into a writeup
+    $ tools/check_headers.py https://example.com --lang pt --no-color
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --timeout SECONDS   Default 10. Raise for slow CDNs or laggy targets.
+    --no-color          Strip ANSI codes. Useful for writeups and pipes.
+
+[EN] EXIT CODES
+    0  All checked headers OK
+    1  Missing or weak headers, or info-disclosure detected
+    2  Bad URL (no scheme, malformed)
+    3  Network, DNS, or TLS error
+
+[EN] TIPS
+    - Score only counts security headers; info-disclosure (Server,
+      X-Powered-By) is reported but doesn't lower the score.
+    - On 301/302/303/307/308, the redirect chain is shown and a warning
+      reminds you the headers describe the destination, not the origin.
+    - Pair with header_diff to track regressions when site config or CDN
+      changes silently strip a header.
+
+[PT] PROPÓSITO
+    Audita os headers HTTP de segurança de um URL: HSTS, CSP, X-Frame-
+    Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy,
+    os três headers cross-origin (COOP/COEP/CORP), mais headers de
+    information disclosure (Server, X-Powered-By). Cada header em falta
+    ou fraco é reportado com o ataque/risco concreto e uma correção em
+    uma linha. Deteta cadeias de redirect e avisa quando os headers
+    descrevem o destino e não o URL original.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/check_headers.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — auditoria base a um site alvo
+    $ tools/check_headers.py https://ciberacaro.github.io
+    Output esperado (truncado):
+        URL: https://ciberacaro.github.io
+        Estado: 200
+        Headers de segurança:
+          ✓ Strict-Transport-Security: max-age=31536000; ...
+          ✗ Content-Security-Policy: (em falta)
+          ! X-Frame-Options: SAMEORIGIN
+          ...
+        Pontuação: 5/9 headers OK
+        Problemas encontrados (4):
+          ✗ Content-Security-Policy em falta
+            Risco:    sem defesa em profundidade contra injeção XSS.
+            Correção: adicionar `Content-Security-Policy: default-src ...`
+
+    # Cenário 2 — output legível por máquina
+    $ tools/check_headers.py https://example.com --json | jq '.issues[].name'
+
+    # Cenário 3 — relatório em PT-PT pronto para um writeup
+    $ tools/check_headers.py https://example.com --lang pt --no-color
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --timeout SEGUNDOS  Por omissão 10. Aumentar para CDNs lentas.
+    --no-color          Remove códigos ANSI. Útil para writeups e pipes.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Todos os headers verificados OK
+    1  Headers em falta/fracos, ou information disclosure
+    2  URL inválido (sem esquema, malformado)
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - A pontuação só conta headers de segurança; information disclosure
+      (Server, X-Powered-By) é reportado mas não baixa a pontuação.
+    - Em 301/302/303/307/308, a cadeia de redirects é mostrada e há um
+      aviso a lembrar que os headers descrevem o destino, não a origem.
+    - Combina com header_diff para apanhar regressões quando alterações
+      ao site ou CDN removem silenciosamente um header.
+
+--------------------------------------------------------------------------------
+1.2 cookie_check.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Analyze every Set-Cookie response header for security flags: HttpOnly,
+    Secure, SameSite, Domain, Path, Expires/Max-Age, Priority, and the
+    __Host- / __Secure- prefix rules from RFC 6265bis. Flags session-like
+    cookies without HttpOnly (XSS amplifier), cookies without Secure on
+    HTTPS (MITM target), missing/weak SameSite (CSRF surface), broad Domain
+    scope, and cookies that live longer than 1 year.
+
+[EN] QUICK START
+    $ tools/cookie_check.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — audit a login page's cookies
+    $ tools/cookie_check.py https://target.example/login
+    Expected output (truncated):
+        URL: https://target.example/login
+        Cookies set: 3
+          - PHPSESSID
+              HttpOnly: ✗ missing       Secure: ✓        SameSite: Lax
+              Domain:   target.example   Path: /          Max-Age: session
+          - __Host-csrf
+              HttpOnly: ✓               Secure: ✓        SameSite: Strict
+              ...
+        Issues found (2):
+          ✗ PHPSESSID lacks HttpOnly
+            Risk: any reflected/stored XSS can read the session token.
+            Fix:  add `HttpOnly` attribute on the cookie.
+
+    # Scenario 2 — JSON output for a script
+    $ tools/cookie_check.py https://target.example --json | jq '.cookies'
+
+    # Scenario 3 — bilingual report into a writeup
+    $ tools/cookie_check.py https://target.example --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  All cookies OK or no Set-Cookie headers
+    1  Issues found
+    2  Bad URL
+    3  Network error
+
+[EN] TIPS
+    - The __Host- prefix is the strongest cookie marker: requires Secure,
+      no Domain attribute, and Path=/. Browsers reject violations.
+    - SameSite=None must come with Secure or browsers reject the cookie.
+    - For a real login flow, follow redirects manually (curl -L) and run
+      the tool on each step — auth cookies are often set after redirects.
+
+[PT] PROPÓSITO
+    Analisa cada header Set-Cookie e as suas flags de segurança: HttpOnly,
+    Secure, SameSite, Domain, Path, Expires/Max-Age, Priority, e as regras
+    de prefixo __Host- / __Secure- do RFC 6265bis. Assinala cookies de
+    sessão sem HttpOnly (amplificador de XSS), cookies sem Secure em HTTPS
+    (alvo de MITM), SameSite em falta/fraco (superfície de CSRF), escopo
+    de Domain demasiado amplo, e cookies que duram mais de 1 ano.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/cookie_check.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — auditar cookies de uma página de login
+    $ tools/cookie_check.py https://target.example/login
+    Output esperado (truncado):
+        URL: https://target.example/login
+        Cookies definidos: 3
+          - PHPSESSID
+              HttpOnly: ✗ em falta     Secure: ✓        SameSite: Lax
+              Domain:   target.example  Path: /          Max-Age: sessão
+          - __Host-csrf
+              HttpOnly: ✓              Secure: ✓        SameSite: Strict
+              ...
+        Problemas encontrados (2):
+          ✗ PHPSESSID sem HttpOnly
+            Risco:    qualquer XSS refletido/persistido lê o token de sessão.
+            Correção: adicionar o atributo `HttpOnly` no cookie.
+
+    # Cenário 2 — output JSON para um script
+    $ tools/cookie_check.py https://target.example --json | jq '.cookies'
+
+    # Cenário 3 — relatório bilingue para um writeup
+    $ tools/cookie_check.py https://target.example --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Todos os cookies OK ou sem Set-Cookie
+    1  Problemas encontrados
+    2  URL inválido
+    3  Erro de rede
+
+[PT] DICAS
+    - O prefixo __Host- é o marcador mais forte: requer Secure, sem
+      atributo Domain, e Path=/. Browsers rejeitam violações.
+    - SameSite=None tem de vir com Secure ou os browsers rejeitam.
+    - Para um fluxo de login real, segue redirects manualmente (curl -L)
+      e corre o tool em cada passo — cookies de auth são definidos a
+      seguir a redirects.
+
+--------------------------------------------------------------------------------
+1.3 cors_check.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Probe a URL with several Origin headers and inspect the
+    Access-Control-Allow-* response headers. Sends both GET and OPTIONS
+    (preflight) requests with arbitrary attacker origins, the magic 'null'
+    origin, prefix/suffix tricks (`target.example.attacker.com`,
+    `attacker.com.target.example`), and a legitimate origin. Flags
+    reflected origins, wildcard ACAO with credentials, accepted 'null'
+    origin, and naive prefix/suffix matching bugs.
+
+[EN] QUICK START
+    $ tools/cors_check.py https://api.target.example/users/me
+
+[EN] EXAMPLES
+    # Scenario 1 — test if an API endpoint reflects arbitrary origins
+    $ tools/cors_check.py https://api.target.example/users/me
+    Expected output (truncated):
+        Probes:
+          Origin: https://attacker.example
+            GET     → ACAO: https://attacker.example  ACAC: true   [✗ REFLECTED]
+            OPTIONS → ACAO: https://attacker.example  ACAM: GET,POST,DELETE
+          Origin: null
+            GET     → ACAO: null   ACAC: true                       [✗ NULL OK]
+          ...
+        Issues found (2):
+          ✗ Reflected arbitrary Origin with credentials
+            Risk: any site can read this endpoint's response with the user's
+                  cookies. CSRF + data theft.
+            Fix:  validate Origin against an allowlist server-side.
+
+    # Scenario 2 — JSON for a recon report
+    $ tools/cors_check.py https://api.example.com/me --json
+
+    # Scenario 3 — PT-PT for a writeup
+    $ tools/cors_check.py https://api.example.com/me --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  No risky CORS behaviour detected
+    1  Reflected origins, wildcard+creds, null accepted, etc.
+    2  Bad URL
+    3  Network error
+
+[EN] TIPS
+    - Run against authenticated endpoints (after login) — CORS misconfigs
+      are most damaging when the endpoint requires credentials.
+    - Wildcard ACAO ('*') without credentials is often intentional and
+      harmless (public APIs). With credentials it's broken.
+    - 'null' origin is sent by sandboxed iframes, file:// pages, and
+      certain redirects — an easy attacker path.
+
+[PT] PROPÓSITO
+    Sonda um URL com vários headers Origin e inspeciona os headers de
+    resposta Access-Control-Allow-*. Envia pedidos GET e OPTIONS
+    (preflight) com origens de atacante arbitrárias, a origem 'null'
+    mágica, truques de prefixo/sufixo
+    (`target.example.attacker.com`, `attacker.com.target.example`),
+    e uma origem legítima. Assinala origens refletidas, ACAO wildcard com
+    credentials, origem 'null' aceite, e bugs de prefix/suffix matching
+    ingénuos.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/cors_check.py https://api.target.example/users/me
+
+[PT] EXEMPLOS
+    # Cenário 1 — testar se um endpoint de API reflete origens arbitrárias
+    $ tools/cors_check.py https://api.target.example/users/me
+    Output esperado (truncado):
+        Sondagens:
+          Origin: https://attacker.example
+            GET     → ACAO: https://attacker.example  ACAC: true   [✗ REFLETIDO]
+            OPTIONS → ACAO: https://attacker.example  ACAM: GET,POST,DELETE
+          Origin: null
+            GET     → ACAO: null   ACAC: true                      [✗ NULL OK]
+          ...
+        Problemas encontrados (2):
+          ✗ Origin arbitrário refletido com credentials
+            Risco:    qualquer site pode ler a resposta com os cookies do
+                      utilizador. CSRF + roubo de dados.
+            Correção: validar Origin contra uma allowlist no servidor.
+
+    # Cenário 2 — JSON para um relatório de recon
+    $ tools/cors_check.py https://api.example.com/me --json
+
+    # Cenário 3 — PT-PT para um writeup
+    $ tools/cors_check.py https://api.example.com/me --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Sem comportamento CORS arriscado
+    1  Origens refletidas, wildcard+creds, null aceite, etc.
+    2  URL inválido
+    3  Erro de rede
+
+[PT] DICAS
+    - Corre contra endpoints autenticados (depois de login) — má
+      configuração de CORS é mais danosa quando o endpoint pede credenciais.
+    - ACAO wildcard ('*') sem credentials é muitas vezes intencional e
+      inofensivo (APIs públicas). Com credentials está partido.
+    - Origin 'null' é enviado por iframes em sandbox, páginas file:// e
+      certos redirects — caminho fácil para um atacante.
+
+--------------------------------------------------------------------------------
+1.4 http_methods.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Test which HTTP methods (GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE,
+    TRACE, CONNECT) an endpoint accepts. Flags TRACE/CONNECT enabled,
+    destructive methods (PUT/DELETE/PATCH) returning 2xx without auth,
+    OPTIONS missing the Allow header, and TRACE that reflects request
+    headers (XST — Cross-Site Tracing).
+
+    WARNING: sends real PUT/DELETE/PATCH with empty bodies. Use only on
+    targets you are authorised to test. Never against production endpoints
+    that perform real writes.
+
+[EN] QUICK START
+    $ tools/http_methods.py https://example.com/api/users/me
+
+[EN] EXAMPLES
+    # Scenario 1 — REST endpoint with broken auth
+    $ tools/http_methods.py https://target.example/api/users/42
+    Expected output (truncated):
+        URL: https://target.example/api/users/42
+        Methods tested: 9
+          GET      → 200  (✓ expected)
+          HEAD     → 200
+          OPTIONS  → 200  Allow: GET, POST, PUT, DELETE
+          POST     → 405
+          PUT      → 200  [✗ destructive method returned 2xx]
+          DELETE   → 204  [✗ destructive method returned 2xx]
+          TRACE    → 200  [✗ TRACE enabled (XST risk)]
+          CONNECT  → 405
+        Issues found (3): ...
+
+    # Scenario 2 — quick TRACE check on a legacy app
+    $ tools/http_methods.py http://legacy.example/ --json | jq '.tested.TRACE'
+
+    # Scenario 3 — PT-PT
+    $ tools/http_methods.py https://example.com/ --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  Only safe methods accepted, no risky combinations
+    1  Dangerous methods open (TRACE, destructive 2xx, etc.)
+    2  Bad URL
+    3  Network error
+
+[EN] TIPS
+    - Confirm authorisation in writing before running this against any
+      real target. Empty PUT to a wrong endpoint can blank a record.
+    - TRACE + missing X-XSS-Protection used to be the classic XST chain.
+      Modern browsers blocked it, but TRACE enabled is still a smell.
+    - Pair with cookie_check: if Authorization cookies are HttpOnly but
+      PUT/DELETE are accessible, the impact is limited to the local user.
+
+[PT] PROPÓSITO
+    Testa quais os métodos HTTP (GET, HEAD, OPTIONS, POST, PUT, PATCH,
+    DELETE, TRACE, CONNECT) que um endpoint aceita. Assinala TRACE/CONNECT
+    ativos, métodos destrutivos (PUT/DELETE/PATCH) com resposta 2xx sem
+    autenticação, OPTIONS sem header Allow, e TRACE que reflete os
+    headers do pedido (XST — Cross-Site Tracing).
+
+    AVISO: envia pedidos PUT/DELETE/PATCH reais com corpos vazios. Usa
+    apenas em alvos autorizados. Nunca contra endpoints de produção que
+    fazem escritas reais.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/http_methods.py https://example.com/api/users/me
+
+[PT] EXEMPLOS
+    # Cenário 1 — endpoint REST com autenticação partida
+    $ tools/http_methods.py https://target.example/api/users/42
+    Output esperado (truncado):
+        URL: https://target.example/api/users/42
+        Métodos testados: 9
+          GET      → 200  (✓ esperado)
+          PUT      → 200  [✗ método destrutivo devolveu 2xx]
+          DELETE   → 204  [✗ método destrutivo devolveu 2xx]
+          TRACE    → 200  [✗ TRACE ativado (risco XST)]
+          ...
+        Problemas encontrados (3): ...
+
+    # Cenário 2 — verificação rápida de TRACE numa aplicação legacy
+    $ tools/http_methods.py http://legacy.example/ --json | jq '.tested.TRACE'
+
+    # Cenário 3 — PT-PT
+    $ tools/http_methods.py https://example.com/ --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Só métodos seguros aceites, sem combinações arriscadas
+    1  Métodos perigosos abertos (TRACE, destrutivos com 2xx, etc.)
+    2  URL inválido
+    3  Erro de rede
+
+[PT] DICAS
+    - Confirma autorização por escrito antes de correr contra um alvo
+      real. Um PUT vazio para o endpoint errado pode esvaziar um registo.
+    - TRACE + ausência de X-XSS-Protection era a cadeia XST clássica.
+      Os browsers modernos bloquearam-no, mas TRACE ativo continua a ser
+      um indicador.
+    - Combina com cookie_check: se cookies de Authorization são HttpOnly
+      mas PUT/DELETE são acessíveis, o impacto fica limitado ao utilizador.
+
+--------------------------------------------------------------------------------
+1.5 robots_check.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Fetch /robots.txt and /sitemap.xml, list per-User-Agent rules, and
+    highlight paths that match interesting patterns (admin, api, backup,
+    debug, dev, staging, .git, .env, internal, private, secret, etc.).
+    Prints the first 50 sitemap URLs as a recon starting point. Often the
+    fastest way to find the hidden admin panel that the site owner forgot
+    they listed.
+
+[EN] QUICK START
+    $ tools/robots_check.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — recon on a CTF target
+    $ tools/robots_check.py https://target.example
+    Expected output (truncated):
+        URL: https://target.example/robots.txt
+        Status: 200
+        Rules:
+          User-Agent: *
+            Disallow: /admin/         [! interesting]
+            Disallow: /api/v1/internal [! interesting]
+            Disallow: /backup.zip     [! interesting]
+            Disallow: /
+          User-Agent: Googlebot
+            Allow: /
+        Sitemap: https://target.example/sitemap.xml (124 URLs)
+          1. https://target.example/
+          2. https://target.example/about
+          ...
+
+    # Scenario 2 — JSON for piping
+    $ tools/robots_check.py https://example.com --json | jq '.interesting'
+
+    # Scenario 3 — PT-PT
+    $ tools/robots_check.py https://example.com --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  robots.txt fetched, no interesting patterns
+    1  Interesting paths found
+    2  Bad URL
+    3  Network error
+
+[EN] TIPS
+    - "Interesting" doesn't mean exploitable — Disallow on /admin/ tells
+      you it exists. Whether it's accessible is a separate test.
+    - sitemap.xml frequently leaks staging URLs and back-end domains.
+    - Check the User-Agent rules: some sites serve different content to
+      Googlebot. Try `--user-agent "Googlebot"` against the same site.
+
+[PT] PROPÓSITO
+    Vai buscar /robots.txt e /sitemap.xml, lista as regras por User-Agent
+    e destaca caminhos que correspondem a padrões interessantes (admin,
+    api, backup, debug, dev, staging, .git, .env, internal, private,
+    secret, etc.). Imprime os primeiros 50 URLs do sitemap como ponto de
+    partida de recon. Muitas vezes é o caminho mais rápido para encontrar
+    o painel de admin escondido que o dono do site se esqueceu que listou.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/robots_check.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — recon a um alvo de CTF
+    $ tools/robots_check.py https://target.example
+    Output esperado (truncado):
+        URL: https://target.example/robots.txt
+        Estado: 200
+        Regras:
+          User-Agent: *
+            Disallow: /admin/         [! interessante]
+            Disallow: /api/v1/internal [! interessante]
+            Disallow: /backup.zip     [! interessante]
+            Disallow: /
+        Sitemap: https://target.example/sitemap.xml (124 URLs)
+          1. https://target.example/
+          ...
+
+    # Cenário 2 — JSON para pipe
+    $ tools/robots_check.py https://example.com --json | jq '.interesting'
+
+    # Cenário 3 — PT-PT
+    $ tools/robots_check.py https://example.com --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  robots.txt obtido, sem padrões interessantes
+    1  Caminhos interessantes encontrados
+    2  URL inválido
+    3  Erro de rede
+
+[PT] DICAS
+    - "Interessante" não significa explorável — Disallow em /admin/
+      diz-te que existe. Se é acessível é outro teste.
+    - sitemap.xml frequentemente revela URLs de staging e domínios
+      internos.
+    - Vê as regras por User-Agent: alguns sites servem conteúdo
+      diferente ao Googlebot. Experimenta `--user-agent "Googlebot"`.
+
+--------------------------------------------------------------------------------
+1.6 header_diff.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Build a history of a URL's security headers and notice when something
+    changes silently. Subcommand `snapshot` saves the current headers to
+    .header_snapshots/<host>/<timestamp>.json. Subcommand `diff` compares
+    the current state to the latest snapshot and reports added, removed,
+    and modified headers. Catches the case where a CDN config push, a
+    framework upgrade, or a careless commit removes a header you relied on.
+
+[EN] QUICK START
+    $ tools/header_diff.py snapshot https://ciberacaro.github.io
+    $ tools/header_diff.py diff     https://ciberacaro.github.io
+
+[EN] EXAMPLES
+    # Scenario 1 — first snapshot of your own site
+    $ tools/header_diff.py snapshot https://ciberacaro.github.io
+    Expected output:
+        Saved snapshot: .header_snapshots/ciberacaro.github.io/2026-05-18T...
+
+    # Scenario 2 — diff after a config change
+    $ tools/header_diff.py diff https://ciberacaro.github.io
+    Expected output:
+        Comparing live state against 2026-05-15T10:23:00Z
+        Differences (2):
+          ~ Content-Security-Policy
+            old: default-src 'self'; script-src 'self' cdn.example.com
+            new: default-src 'self'; script-src 'self' 'unsafe-inline'
+          - X-Frame-Options
+            old: SAMEORIGIN
+            new: (removed)
+
+    # Scenario 3 — periodic check in a cron job (JSON)
+    $ tools/header_diff.py diff https://example.com --json
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+    Note: --lang/--json/--timeout/--user-agent can appear before or after
+    the subcommand. Both `header_diff.py --lang pt diff URL` and
+    `header_diff.py diff URL --lang pt` work.
+
+[EN] EXIT CODES
+    0  Snapshot saved (snapshot mode) or no differences (diff mode)
+    1  Differences detected (diff mode only)
+    2  Bad URL, no snapshot found, or argparse error
+    3  Network error
+
+[EN] TIPS
+    - .header_snapshots/ is gitignored on purpose — it's local state, not
+      artifact. Don't commit it.
+    - Pair with cron or systemd timer for "monitor my own site for
+      regressions" workflows.
+    - Reset history by deleting the .header_snapshots/<host>/ directory.
+
+[PT] PROPÓSITO
+    Constrói um histórico dos headers de segurança de um URL e nota
+    quando algo muda silenciosamente. O subcomando `snapshot` guarda os
+    headers atuais em .header_snapshots/<host>/<timestamp>.json. O
+    subcomando `diff` compara o estado atual com o último snapshot e
+    reporta headers adicionados, removidos e modificados. Apanha o caso
+    em que um push de configuração de CDN, um upgrade de framework, ou
+    um commit descuidado remove um header com que contavas.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/header_diff.py snapshot https://ciberacaro.github.io
+    $ tools/header_diff.py diff     https://ciberacaro.github.io
+
+[PT] EXEMPLOS
+    # Cenário 1 — primeiro snapshot do teu próprio site
+    $ tools/header_diff.py snapshot https://ciberacaro.github.io
+    Output esperado:
+        Snapshot guardado: .header_snapshots/ciberacaro.github.io/2026-05-18T...
+
+    # Cenário 2 — diff depois de uma mudança de configuração
+    $ tools/header_diff.py diff https://ciberacaro.github.io
+    Output esperado:
+        A comparar estado atual com 2026-05-15T10:23:00Z
+        Diferenças (2):
+          ~ Content-Security-Policy
+            anterior: default-src 'self'; script-src 'self' cdn.example.com
+            atual:    default-src 'self'; script-src 'self' 'unsafe-inline'
+          - X-Frame-Options
+            anterior: SAMEORIGIN
+            atual:    (removido)
+
+    # Cenário 3 — verificação periódica num cron (JSON)
+    $ tools/header_diff.py diff https://example.com --json
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+    Nota: --lang/--json/--timeout/--user-agent podem vir antes ou depois
+    do subcomando. Tanto `header_diff.py --lang pt diff URL` como
+    `header_diff.py diff URL --lang pt` funcionam.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Snapshot guardado, ou sem diferenças (modo diff)
+    1  Diferenças detetadas (apenas modo diff)
+    2  URL inválido, sem snapshot anterior, ou erro de argparse
+    3  Erro de rede
+
+[PT] DICAS
+    - .header_snapshots/ está no gitignore de propósito — é estado local,
+      não artefacto. Não fazer commit.
+    - Combina com cron ou systemd timer para "monitoriza o meu site para
+      regressões".
+    - Apaga o diretório .header_snapshots/<host>/ para reiniciar o histórico.
+
+--------------------------------------------------------------------------------
+1.7 tech_fingerprint.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Identify the technology stack behind a website — a Wappalyzer-lite in
+    pure stdlib. Reads headers, cookies, and the HTML body, then matches
+    against signatures across categories: web servers (nginx, Apache, IIS,
+    Caddy, LiteSpeed), CDNs (Cloudflare, Fastly, CloudFront, Akamai),
+    WAFs (7 signatures including Cloudflare WAF, AWS WAF, Sucuri, Imperva,
+    ModSecurity, Akamai Kona, F5 BIG-IP ASM), languages and frameworks
+    (PHP, ASP.NET, Python, Node.js, Rails, Java), CMSs (WordPress, Drupal,
+    Joomla, Ghost), JS frameworks (React, Vue, Svelte, Next, Angular),
+    e-commerce (Shopify, Magento), and analytics.
+
+[EN] QUICK START
+    $ tools/tech_fingerprint.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — quick recon before deeper testing
+    $ tools/tech_fingerprint.py https://target.example
+    Expected output (truncated):
+        URL: https://target.example
+        Status: 200
+        Detected:
+          Server          nginx
+              evidence: Server header
+          CDN             Cloudflare
+              evidence: cf-ray header, __cfduid cookie
+          WAF             Cloudflare WAF
+              evidence: cf-mitigated header
+          CMS             WordPress
+              evidence: /wp-content/ path, generator meta
+          JS              React
+              evidence: __NEXT_DATA__ in HTML
+        5 technologies detected.
+
+    # Scenario 2 — JSON for piping into recon scripts
+    $ tools/tech_fingerprint.py https://target.example --json
+
+    # Scenario 3 — PT-PT
+    $ tools/tech_fingerprint.py https://target.example --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  Fingerprinted (whether or not anything was detected)
+    2  Bad URL
+    3  Network error
+
+[EN] TIPS
+    - Fingerprints rely on what the site exposes. A site behind a strict
+      WAF or with stripped headers will surface less information.
+    - Pair with cve_lookup once you know the version: `WordPress 5.7` +
+      `tools/cve_lookup.py CVE-2021-29447`.
+    - Generator meta tags (`<meta name="generator" content="...">`) are
+      one of the most reliable signals — and the easiest for the site
+      owner to remove.
+
+[PT] PROPÓSITO
+    Identifica o stack tecnológico de um site — um Wappalyzer-lite em
+    stdlib puro. Lê headers, cookies, e o corpo HTML, depois faz
+    correspondência com assinaturas em várias categorias: servidores web
+    (nginx, Apache, IIS, Caddy, LiteSpeed), CDNs (Cloudflare, Fastly,
+    CloudFront, Akamai), WAFs (7 assinaturas incluindo Cloudflare WAF,
+    AWS WAF, Sucuri, Imperva, ModSecurity, Akamai Kona, F5 BIG-IP ASM),
+    linguagens e frameworks (PHP, ASP.NET, Python, Node.js, Rails, Java),
+    CMSs (WordPress, Drupal, Joomla, Ghost), JS frameworks (React, Vue,
+    Svelte, Next, Angular), e-commerce (Shopify, Magento) e analytics.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/tech_fingerprint.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — recon rápido antes de teste mais profundo
+    $ tools/tech_fingerprint.py https://target.example
+    Output esperado (truncado):
+        URL: https://target.example
+        Estado: 200
+        Detetado:
+          Servidor        nginx
+              evidência: Server header
+          CDN             Cloudflare
+              evidência: cf-ray header, __cfduid cookie
+          WAF             Cloudflare WAF
+              evidência: cf-mitigated header
+          CMS             WordPress
+              evidência: caminho /wp-content/, meta generator
+          JS              React
+              evidência: __NEXT_DATA__ no HTML
+        5 tecnologias detetadas.
+
+    # Cenário 2 — JSON para pipe em scripts de recon
+    $ tools/tech_fingerprint.py https://target.example --json
+
+    # Cenário 3 — PT-PT
+    $ tools/tech_fingerprint.py https://target.example --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Fingerprint feito (independente de detetar ou não)
+    2  URL inválido
+    3  Erro de rede
+
+[PT] DICAS
+    - As fingerprints dependem do que o site expõe. Um site atrás de um
+      WAF estrito ou com headers removidos revela menos informação.
+    - Combina com cve_lookup quando souberes a versão: `WordPress 5.7` +
+      `tools/cve_lookup.py CVE-2021-29447`.
+    - Os meta generator (`<meta name="generator" content="...">`) são um
+      dos sinais mais fiáveis — e os mais fáceis do dono do site remover.
+
+================================================================================
+2. DNS & NETWORK
+================================================================================
+   [dns_records, subfinder, whois_check, wayback_check]
+
+--------------------------------------------------------------------------------
+2.1 dns_records.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Query DNS records (A, AAAA, MX, NS, TXT, CAA) and audit the email-
+    authentication setup (SPF, DKIM selector hints, DMARC). Uses raw
+    UDP/53 with TCP fallback when responses are truncated — no `dig` or
+    `nslookup` required. Attempts an AXFR zone transfer against every
+    authoritative NS (often refused, but when it isn't it's a critical
+    finding: the entire zone is dumped).
+
+[EN] QUICK START
+    $ tools/dns_records.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — full DNS + email-auth audit
+    $ tools/dns_records.py target.example
+    Expected output (truncated):
+        Domain: target.example
+        Resolver: 1.1.1.1
+        A      target.example          93.184.216.34
+        AAAA   target.example          2606:2800:220:1::1
+        MX     target.example          10 mail.target.example
+        NS     target.example          ns1.target.example, ns2.target.example
+        TXT    target.example          "v=spf1 include:_spf.google.com ~all"
+        CAA    target.example          0 issue "letsencrypt.org"
+        SPF    valid (~all = soft fail)
+        DMARC  ✗ missing — anyone can spoof mail from target.example
+        AXFR   ns1.target.example: refused  ✓
+               ns2.target.example: refused  ✓
+
+    # Scenario 2 — using a different resolver
+    $ tools/dns_records.py example.com --resolver 9.9.9.9
+
+    # Scenario 3 — fast scan, skip zone transfer
+    $ tools/dns_records.py example.com --no-axfr --lang pt
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --resolver IP       DNS resolver IP. Default: 1.1.1.1.
+    --no-axfr           Skip the AXFR probe (faster, less noisy).
+    --timeout SECONDS   Per-query timeout. Default 10.
+
+[EN] EXIT CODES
+    0  All records OK, email auth in good shape
+    1  Missing SPF/DMARC, AXFR allowed, weak SPF mechanisms
+    2  Bad domain
+    3  DNS failure
+
+[EN] TIPS
+    - DMARC `p=none` is monitor-only and shouldn't be considered "set up".
+      The tool reports it as a finding.
+    - CAA records lock down which CAs can issue certs for the domain.
+      Missing CAA isn't an issue per se but worth noting.
+    - AXFR success is a critical finding. Document the full zone dump as
+      evidence in the writeup.
+
+[PT] PROPÓSITO
+    Consulta registos DNS (A, AAAA, MX, NS, TXT, CAA) e audita a
+    configuração de autenticação de email (SPF, pistas de selector DKIM,
+    DMARC). Usa UDP/53 cru com fallback para TCP quando as respostas são
+    truncadas — sem necessidade de `dig` ou `nslookup`. Tenta uma
+    transferência de zona AXFR contra cada NS autoritativo (normalmente
+    recusada, mas quando não é, é um finding crítico: a zona toda é
+    despejada).
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/dns_records.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — auditoria completa de DNS + email-auth
+    $ tools/dns_records.py target.example
+    Output esperado (truncado):
+        Domínio: target.example
+        Resolver: 1.1.1.1
+        A      target.example          93.184.216.34
+        AAAA   target.example          2606:2800:220:1::1
+        MX     target.example          10 mail.target.example
+        NS     target.example          ns1.target.example, ns2.target.example
+        TXT    target.example          "v=spf1 include:_spf.google.com ~all"
+        CAA    target.example          0 issue "letsencrypt.org"
+        SPF    válido (~all = soft fail)
+        DMARC  ✗ em falta — qualquer um pode forjar email do target.example
+        AXFR   ns1.target.example: recusado  ✓
+               ns2.target.example: recusado  ✓
+
+    # Cenário 2 — usar outro resolver
+    $ tools/dns_records.py example.com --resolver 9.9.9.9
+
+    # Cenário 3 — scan rápido, sem transferência de zona
+    $ tools/dns_records.py example.com --no-axfr --lang pt
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --resolver IP       IP do resolver DNS. Por omissão: 1.1.1.1.
+    --no-axfr           Salta a sondagem AXFR (mais rápido, menos ruído).
+    --timeout SEGUNDOS  Timeout por query. Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Todos os registos OK, email auth em ordem
+    1  SPF/DMARC em falta, AXFR permitido, mecanismos SPF fracos
+    2  Domínio inválido
+    3  Falha de DNS
+
+[PT] DICAS
+    - DMARC `p=none` é apenas monitorização e não conta como "configurado".
+      O tool reporta como finding.
+    - Registos CAA limitam quais as CAs que podem emitir certs para o
+      domínio. Ausência de CAA não é um problema em si, mas vale a pena
+      notar.
+    - Sucesso de AXFR é um finding crítico. Documenta o dump completo
+      da zona como evidência no writeup.
+
+--------------------------------------------------------------------------------
+2.2 subfinder.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Enumerate subdomains of a base domain. Queries crt.sh (Certificate
+    Transparency logs) JSON API for every cert issued to anything under
+    *.example.com. Optionally brute-forces a wordlist (27 built-in
+    entries; supply your own with --wordlist for serious recon). All
+    candidates are DNS-resolved in parallel with per-thread jitter to
+    avoid hammering the resolver.
+
+[EN] QUICK START
+    $ tools/subfinder.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — quick subdomain map for bug bounty recon
+    $ tools/subfinder.py target.example
+    Expected output (truncated):
+        Domain: target.example
+        Querying crt.sh... 142 unique candidates
+        Brute-forcing wordlist... 27 candidates
+        Resolved (89 unique):
+          api.target.example          → 198.51.100.10
+          dev.target.example          → 198.51.100.20
+          mail.target.example         → 198.51.100.30
+          ...
+          staging.target.example      → 198.51.100.50  [! '-staging' in name]
+
+    # Scenario 2 — serious recon with a big wordlist
+    $ tools/subfinder.py target.example \
+          --wordlist /usr/share/wordlists/subdomains-top1million.txt \
+          --threads 20 --jitter 0.3
+
+    # Scenario 3 — only CT logs, no brute-force
+    $ tools/subfinder.py example.com --skip-bruteforce --json
+
+    # Scenario 4 — only wordlist (CT logs sometimes lag)
+    $ tools/subfinder.py example.com --skip-crtsh
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --wordlist FILE      Path to a wordlist. Default: built-in 27 entries.
+    --threads N          Parallel DNS resolutions. Default 10.
+    --jitter SECONDS     Per-thread random sleep before each query.
+    --skip-crtsh         Skip the crt.sh phase.
+    --skip-bruteforce    Skip the wordlist brute-force phase.
+    --timeout SECONDS    Per-resolution timeout. Default 10.
+
+[EN] EXIT CODES
+    0  Enumeration complete (whether or not subdomains found)
+    2  Bad domain
+    3  Network error (crt.sh down or DNS broken)
+
+[EN] TIPS
+    - crt.sh sometimes returns 502 / 504. Retry, or fall back to
+      --skip-crtsh.
+    - Feed the resolved list into recon.py for a deeper sweep:
+        tools/subfinder.py example.com --json | jq -r '.resolved[].host'
+    - For aggressive scanning, lower --jitter to 0 but expect to be
+      rate-limited by the resolver. Use a recursive resolver you own.
+
+[PT] PROPÓSITO
+    Enumera subdomínios de um domínio base. Consulta a API JSON do crt.sh
+    (logs de Certificate Transparency) por cada certificado emitido para
+    qualquer *.example.com. Opcionalmente faz brute-force com uma
+    wordlist (27 entradas embutidas; usa a tua com --wordlist para recon
+    a sério). Todos os candidatos são resolvidos por DNS em paralelo com
+    jitter por thread para não martelar o resolver.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/subfinder.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — mapa rápido de subdomínios para bug bounty recon
+    $ tools/subfinder.py target.example
+    Output esperado (truncado):
+        Domínio: target.example
+        A consultar crt.sh... 142 candidatos únicos
+        Brute-force com wordlist... 27 candidatos
+        Resolvidos (89 únicos):
+          api.target.example          → 198.51.100.10
+          dev.target.example          → 198.51.100.20
+          mail.target.example         → 198.51.100.30
+          ...
+          staging.target.example      → 198.51.100.50  [! '-staging' no nome]
+
+    # Cenário 2 — recon sério com wordlist grande
+    $ tools/subfinder.py target.example \
+          --wordlist /usr/share/wordlists/subdomains-top1million.txt \
+          --threads 20 --jitter 0.3
+
+    # Cenário 3 — apenas logs CT, sem brute-force
+    $ tools/subfinder.py example.com --skip-bruteforce --json
+
+    # Cenário 4 — apenas wordlist (logs CT às vezes atrasam-se)
+    $ tools/subfinder.py example.com --skip-crtsh
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --wordlist FICHEIRO  Caminho para uma wordlist. Por omissão: 27 entradas.
+    --threads N          Resoluções DNS paralelas. Por omissão 10.
+    --jitter SEGUNDOS    Sleep aleatório por thread antes de cada query.
+    --skip-crtsh         Salta a fase do crt.sh.
+    --skip-bruteforce    Salta a fase de brute-force com wordlist.
+    --timeout SEGUNDOS   Timeout por resolução. Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Enumeração completa (com ou sem subdomínios encontrados)
+    2  Domínio inválido
+    3  Erro de rede (crt.sh em baixo ou DNS estragado)
+
+[PT] DICAS
+    - crt.sh às vezes devolve 502 / 504. Tenta de novo, ou usa
+      --skip-crtsh.
+    - Alimenta a lista resolvida ao recon.py para um sweep mais profundo:
+        tools/subfinder.py example.com --json | jq -r '.resolved[].host'
+    - Para scanning agressivo, baixa o --jitter para 0 mas conta com ser
+      rate-limited pelo resolver. Usa um resolver recursivo teu.
+
+--------------------------------------------------------------------------------
+2.3 whois_check.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    WHOIS lookup over TCP/43 (no `whois` CLI required). Two-step query:
+    asks IANA for the authoritative server for the TLD, then queries
+    that server for the domain. Parses the common fields (registrar,
+    creation date, expiry, name servers, DNSSEC status) and flags
+    expired domains, domains expiring within 30 days, and zones with
+    DNSSEC unsigned.
+
+[EN] QUICK START
+    $ tools/whois_check.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — quick domain hygiene check
+    $ tools/whois_check.py target.example
+    Expected output (truncated):
+        Domain: target.example
+        Registrar:    GoDaddy.com, LLC
+        Created:      2010-03-15
+        Updated:      2024-02-10
+        Expires:      2025-03-15  [! expires in 27 days]
+        Name servers: ns1.target.example, ns2.target.example
+        DNSSEC:       ✗ unsigned
+
+    # Scenario 2 — Portuguese ccTLD
+    $ tools/whois_check.py sapo.pt --lang pt
+
+    # Scenario 3 — JSON pipeline
+    $ tools/whois_check.py example.com --json | jq '.expires'
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  Domain healthy
+    1  Expired, expiring soon, or DNSSEC unsigned
+    2  Bad domain
+    3  WHOIS error
+
+[EN] TIPS
+    - WHOIS output format is not standardised across TLDs. The tool
+      knows the common ones; for obscure ccTLDs the parsed fields may
+      be incomplete (raw text is always shown).
+    - Many TLDs hide registrant contact behind GDPR-compliant redaction
+      since 2018. Don't expect names/emails.
+    - Combine with dns_records: if the domain has DNSSEC unsigned AND
+      no DMARC, the email-spoofing surface is wide open.
+
+[PT] PROPÓSITO
+    Lookup WHOIS sobre TCP/43 (sem necessidade do CLI `whois`). Query em
+    dois passos: pergunta ao IANA qual o servidor autoritativo para o
+    TLD, depois consulta esse servidor pelo domínio. Faz parse aos
+    campos comuns (registrar, data de criação, expiração, nameservers,
+    estado DNSSEC) e assinala domínios expirados, a expirar nos próximos
+    30 dias, e zonas com DNSSEC não assinado.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/whois_check.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — verificação rápida de higiene do domínio
+    $ tools/whois_check.py target.example
+    Output esperado (truncado):
+        Domínio: target.example
+        Registrar:    GoDaddy.com, LLC
+        Criado:       2010-03-15
+        Atualizado:   2024-02-10
+        Expira:       2025-03-15  [! expira em 27 dias]
+        Nameservers:  ns1.target.example, ns2.target.example
+        DNSSEC:       ✗ não assinado
+
+    # Cenário 2 — ccTLD português
+    $ tools/whois_check.py sapo.pt --lang pt
+
+    # Cenário 3 — pipeline JSON
+    $ tools/whois_check.py example.com --json | jq '.expires'
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Domínio saudável
+    1  Expirado, a expirar em breve, ou DNSSEC sem assinatura
+    2  Domínio inválido
+    3  Erro de WHOIS
+
+[PT] DICAS
+    - O formato do WHOIS não é padronizado entre TLDs. O tool conhece os
+      mais comuns; para ccTLDs obscuros os campos parseados podem estar
+      incompletos (o texto cru é sempre mostrado).
+    - Muitos TLDs escondem o contacto do registante atrás de redação
+      compatível com RGPD desde 2018. Não esperes nomes/emails.
+    - Combina com dns_records: se o domínio tem DNSSEC não assinado E
+      sem DMARC, a superfície de email spoofing está escancarada.
+
+--------------------------------------------------------------------------------
+2.4 wayback_check.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Look up a URL on the Internet Archive's Wayback Machine. Three modes:
+    closest-snapshot (default), full timeline of snapshots (--timeline),
+    and live-vs-archived unified diff (--diff). Useful for finding
+    deleted /admin pages, recovering old API documentation, or
+    correlating site changes to incident timelines.
+
+[EN] QUICK START
+    $ tools/wayback_check.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — find the closest snapshot
+    $ tools/wayback_check.py https://target.example/admin
+    Expected output:
+        URL: https://target.example/admin
+        Closest snapshot: 2023-11-04 14:23:11 UTC
+        Archive URL: https://web.archive.org/web/20231104142311/...
+        Status at capture: 200 OK
+
+    # Scenario 2 — timeline of all known snapshots
+    $ tools/wayback_check.py https://target.example --timeline --limit 30
+
+    # Scenario 3 — what changed since the last archived copy?
+    $ tools/wayback_check.py https://target.example --diff
+    Expected output: unified-diff style, live vs closest snapshot.
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --timeline          List snapshots via the CDX API.
+    --limit N           Max snapshots with --timeline. Default 20.
+    --diff              Fetch closest snapshot and unified-diff vs live.
+    --timeout SECONDS   Default 10.
+
+[EN] EXIT CODES
+    0  Snapshot found (or, with --timeline, list returned)
+    1  No snapshot on record
+    2  Bad URL
+    3  API error
+
+[EN] TIPS
+    - Wayback respects robots.txt — if the target had `Disallow: /` set
+      at the time of crawl, there may be no snapshot.
+    - For very recent pages (less than a week old), expect no snapshot.
+    - --diff is text-based — works well on HTML/JSON, poorly on assets.
+
+[PT] PROPÓSITO
+    Procura um URL na Wayback Machine do Internet Archive. Três modos:
+    snapshot mais próximo (por omissão), timeline completo de snapshots
+    (--timeline), e diff unificado entre live e arquivado (--diff). Útil
+    para encontrar páginas /admin removidas, recuperar documentação
+    antiga de APIs, ou correlacionar alterações ao site com timelines
+    de incidentes.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/wayback_check.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — encontrar o snapshot mais próximo
+    $ tools/wayback_check.py https://target.example/admin
+    Output esperado:
+        URL: https://target.example/admin
+        Snapshot mais próximo: 2023-11-04 14:23:11 UTC
+        URL no arquivo: https://web.archive.org/web/20231104142311/...
+        Estado na captura: 200 OK
+
+    # Cenário 2 — timeline de todos os snapshots conhecidos
+    $ tools/wayback_check.py https://target.example --timeline --limit 30
+
+    # Cenário 3 — o que mudou desde a última cópia arquivada?
+    $ tools/wayback_check.py https://target.example --diff
+    Output esperado: estilo unified-diff, live vs snapshot mais próximo.
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --timeline          Lista snapshots via API CDX.
+    --limit N           Snapshots máximos com --timeline. Por omissão 20.
+    --diff              Vai buscar o snapshot mais próximo e diff vs live.
+    --timeout SEGUNDOS  Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Snapshot encontrado (ou lista, com --timeline)
+    1  Sem snapshot registado
+    2  URL inválido
+    3  Erro de API
+
+[PT] DICAS
+    - Wayback respeita robots.txt — se o alvo tinha `Disallow: /` no
+      momento do crawl, pode não haver snapshot.
+    - Para páginas muito recentes (menos de uma semana), não esperes
+      snapshot.
+    - --diff é baseado em texto — funciona bem em HTML/JSON, mal em
+      assets.
+
+================================================================================
+3. TLS & CERTIFICATES
+================================================================================
+   [tls_inspect]
+
+--------------------------------------------------------------------------------
+3.1 tls_inspect.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Connect to a host:port and report everything about the TLS
+    certificate and connection: issuer, subject, validity window, SANs,
+    signature algorithm, public key size, TLS version negotiated, cipher
+    suite. Fetches certs even when they are broken (uses CERT_NONE) so
+    you can inspect expired or self-signed certs. Additionally probes
+    which TLS versions the server accepts via pinned handshakes
+    (SSLv3, TLS 1.0, 1.1, 1.2, 1.3) and flags the deprecated ones.
+
+[EN] QUICK START
+    $ tools/tls_inspect.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — full cert inspection
+    $ tools/tls_inspect.py target.example
+    Expected output (truncated):
+        Host: target.example:443
+        Subject:    CN=target.example
+        Issuer:     CN=R3, O=Let's Encrypt
+        Valid from: 2026-01-15  to  2026-04-15  (✗ expires in 5 days)
+        SANs:       target.example, www.target.example
+        Sig algo:   sha256WithRSAEncryption
+        Public key: RSA 2048 bits
+        Negotiated: TLSv1.3  TLS_AES_256_GCM_SHA384
+        Accepted:   TLS 1.2, TLS 1.3
+        Refused:    SSLv3, TLS 1.0, TLS 1.1     ✓
+
+    # Scenario 2 — non-default port
+    $ tools/tls_inspect.py mail.example.com:993
+
+    # Scenario 3 — legacy server (e.g. an internal box stuck on TLS 1.0)
+    $ tools/tls_inspect.py legacy.example.local --lang pt
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+    Target accepts plain `host`, `host:port`, or a full URL.
+
+[EN] EXIT CODES
+    0  Cert valid, no weak/deprecated TLS versions
+    1  Expired, expiring soon, weak sig, hostname mismatch, broad
+       wildcard, or deprecated TLS version accepted
+    2  Bad target format
+    3  Connection or TLS error
+
+[EN] TIPS
+    - 5-day expiry warning is intentional — it's enough lead time to
+      renew before users notice.
+    - "Accepted: TLS 1.0" is a real finding even if the cert is fine —
+      old protocols expose old ciphers.
+    - Internal IPs and self-signed certs work — the tool doesn't require
+      a valid chain to inspect. Useful for AD lab work.
+
+[PT] PROPÓSITO
+    Liga-se a um host:port e reporta tudo sobre o certificado TLS e a
+    ligação: issuer, subject, janela de validade, SANs, algoritmo de
+    assinatura, tamanho da chave pública, versão de TLS negociada, suite
+    de cifras. Vai buscar certificados mesmo quando estão partidos (usa
+    CERT_NONE) para se poder inspecionar certs expirados ou
+    auto-assinados. Sonda também quais as versões TLS que o servidor
+    aceita via handshakes fixos (SSLv3, TLS 1.0, 1.1, 1.2, 1.3) e
+    assinala as descontinuadas.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/tls_inspect.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — inspeção completa do certificado
+    $ tools/tls_inspect.py target.example
+    Output esperado (truncado):
+        Host: target.example:443
+        Subject:    CN=target.example
+        Issuer:     CN=R3, O=Let's Encrypt
+        Válido de:  2026-01-15  a  2026-04-15  (✗ expira em 5 dias)
+        SANs:       target.example, www.target.example
+        Algoritmo:  sha256WithRSAEncryption
+        Chave:      RSA 2048 bits
+        Negociado:  TLSv1.3  TLS_AES_256_GCM_SHA384
+        Aceites:    TLS 1.2, TLS 1.3
+        Recusados:  SSLv3, TLS 1.0, TLS 1.1     ✓
+
+    # Cenário 2 — porto não-padrão
+    $ tools/tls_inspect.py mail.example.com:993
+
+    # Cenário 3 — servidor legacy (ex: máquina interna fixa em TLS 1.0)
+    $ tools/tls_inspect.py legacy.example.local --lang pt
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+    O target aceita `host`, `host:port`, ou um URL completo.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Cert válido, sem versões TLS fracas/descontinuadas
+    1  Expirado, a expirar em breve, sig fraca, hostname mismatch,
+       wildcard demasiado amplo, ou versão TLS descontinuada aceite
+    2  Formato do target inválido
+    3  Erro de ligação ou TLS
+
+[PT] DICAS
+    - O aviso de expiração a 5 dias é intencional — dá tempo de renovar
+      antes dos utilizadores notarem.
+    - "Aceites: TLS 1.0" é um finding real mesmo se o cert estiver bom —
+      protocolos antigos expõem cifras antigas.
+    - IPs internos e certs auto-assinados funcionam — o tool não precisa
+      de uma cadeia válida para inspecionar. Útil em laboratórios de AD.
+
+================================================================================
+4. AUTH & TOKENS
+================================================================================
+   [jwt_inspect, hashid]
+
+--------------------------------------------------------------------------------
+4.1 jwt_inspect.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Decode a JSON Web Token into its three parts (header, payload,
+    signature), pretty-print the claims with human-readable timestamps
+    and validity windows, and flag common security issues: `alg: none`,
+    unknown/weak algorithms, missing or expired `exp`, future `nbf`,
+    validity windows >24h, missing `iss`/`aud`, and path-traversal
+    patterns in the `kid` header.
+
+[EN] QUICK START
+    $ tools/jwt_inspect.py "eyJhbGciOi..."
+
+[EN] EXAMPLES
+    # Scenario 1 — quick inspection of a captured token
+    $ tools/jwt_inspect.py "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    Expected output (truncated):
+        Header:
+          alg: HS256
+          typ: JWT
+        Payload:
+          sub: 42
+          name: Alice
+          iat: 1714572345 (2024-05-01 14:25:45 UTC)
+          exp: 1715177145 (2024-05-08 14:25:45 UTC) [✗ expired]
+        Signature: 32-byte HMAC-SHA256
+        Issues:
+          ✗ Token expired since 2024-05-08
+
+    # Scenario 2 — read JWT from stdin
+    $ echo "$JWT" | tools/jwt_inspect.py -
+
+    # Scenario 3 — PT-PT for a writeup
+    $ tools/jwt_inspect.py "$JWT" --lang pt --json
+
+[EN] FLAGS
+    Beyond the universals: none.
+
+[EN] EXIT CODES
+    0  No issues
+    1  Issues found (expired, alg:none, etc.)
+    2  Not a valid JWT format (not 3 base64url segments)
+
+[EN] TIPS
+    - `alg: none` tokens accept any signature (including empty). Many
+      libraries used to allow this by default — still occasionally seen.
+    - `kid` (key ID) header is a free-text field used by the server to
+      pick the verification key. If the server uses `kid` to read a file
+      path, traversal like `../../../../../dev/null` can force a
+      predictable empty key.
+    - Don't paste real production tokens into public terminals — they
+      grant whatever access the `sub` claim implies until `exp`.
+
+[PT] PROPÓSITO
+    Descodifica um JWT nas três partes (header, payload, signature),
+    imprime as claims com timestamps legíveis e janelas de validade, e
+    assinala problemas comuns de segurança: `alg: none`, algoritmos
+    desconhecidos/fracos, `exp` em falta ou expirado, `nbf` no futuro,
+    janelas de validade > 24h, `iss`/`aud` em falta, e padrões de path
+    traversal no header `kid`.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/jwt_inspect.py "eyJhbGciOi..."
+
+[PT] EXEMPLOS
+    # Cenário 1 — inspeção rápida de um token capturado
+    $ tools/jwt_inspect.py "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    Output esperado (truncado):
+        Header:
+          alg: HS256
+          typ: JWT
+        Payload:
+          sub: 42
+          name: Alice
+          iat: 1714572345 (2024-05-01 14:25:45 UTC)
+          exp: 1715177145 (2024-05-08 14:25:45 UTC) [✗ expirado]
+        Signature: 32 bytes HMAC-SHA256
+        Problemas:
+          ✗ Token expirado desde 2024-05-08
+
+    # Cenário 2 — ler JWT de stdin
+    $ echo "$JWT" | tools/jwt_inspect.py -
+
+    # Cenário 3 — PT-PT para um writeup
+    $ tools/jwt_inspect.py "$JWT" --lang pt --json
+
+[PT] FLAGS
+    Para além das universais: nenhuma.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Sem problemas
+    1  Problemas encontrados (expirado, alg:none, etc.)
+    2  Não é um JWT válido (não tem 3 segmentos base64url)
+
+[PT] DICAS
+    - Tokens com `alg: none` aceitam qualquer assinatura (incluindo
+      vazia). Muitas bibliotecas permitiam isto por omissão — ainda se
+      vê ocasionalmente.
+    - O header `kid` (key ID) é um campo de texto livre usado pelo
+      servidor para escolher a chave de verificação. Se o servidor usa
+      `kid` para ler um caminho, traversal como `../../../../dev/null`
+      pode forçar uma chave vazia previsível.
+    - Não coles tokens de produção reais em terminais públicos — dão o
+      acesso que a claim `sub` implica até ao `exp`.
+
+--------------------------------------------------------------------------------
+4.2 hashid.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Identify the likely format(s) of a hash string. Knows ~25 formats:
+    MD5, SHA-1/256/384/512, bcrypt ($2a/$2b/$2y$...), scrypt, Argon2
+    ($argon2id$...), phpass (WordPress), Apache APR1 ($apr1$...), Unix
+    crypt variants ($1$/$5$/$6$/$y$), MySQL old (16 hex) and new (* +
+    40 hex), NTLM (32 hex, no salt), LM, LDAP (SHA/SSHA base64), JWT
+    (commonly mistaken for a hash). Ranks candidates by confidence and
+    includes hashcat mode hints.
+
+[EN] QUICK START
+    $ tools/hashid.py 5f4dcc3b5aa765d61d8327deb882cf99
+
+[EN] EXAMPLES
+    # Scenario 1 — anonymous hash from a CTF
+    $ tools/hashid.py 5f4dcc3b5aa765d61d8327deb882cf99
+    Expected output:
+        Input: 5f4dcc3b5aa765d61d8327deb882cf99 (32 hex chars)
+        Candidates:
+          1. MD5         confidence: high    hashcat -m 0
+          2. NTLM        confidence: high    hashcat -m 1000
+          3. MD4         confidence: medium  hashcat -m 900
+          4. LM          confidence: low     hashcat -m 3000
+
+    # Scenario 2 — bcrypt hash
+    $ tools/hashid.py '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz...'
+    Expected output:
+        Candidates: bcrypt (high, hashcat -m 3200)
+
+    # Scenario 3 — from stdin (useful with `head /etc/shadow`)
+    $ echo '$6$saltsaltsalt$...' | tools/hashid.py -
+
+[EN] FLAGS
+    Beyond the universals: none.
+
+[EN] EXIT CODES
+    0  At least one candidate identified
+    2  Empty input or invalid format
+
+[EN] TIPS
+    - 32 hex chars is ambiguous: MD5 vs NTLM is the most common
+      confusion. Context decides: shadow file → MD5-crypt; SAM dump →
+      NTLM.
+    - bcrypt's `$2a` and `$2b` differ in a wraparound bug fix; both
+      crack with hashcat -m 3200.
+    - hashcat mode numbers in the output are the actual numbers to pass:
+      `hashcat -m 1000 hash.txt rockyou.txt`.
+
+[PT] PROPÓSITO
+    Identifica o(s) provável(is) formato(s) de uma string de hash.
+    Conhece ~25 formatos: MD5, SHA-1/256/384/512, bcrypt ($2a/$2b/$2y$),
+    scrypt, Argon2 ($argon2id$...), phpass (WordPress), Apache APR1
+    ($apr1$...), variantes Unix crypt ($1$/$5$/$6$/$y$), MySQL antigo
+    (16 hex) e novo (* + 40 hex), NTLM (32 hex, sem salt), LM, LDAP
+    (SHA/SSHA base64), JWT (vulgarmente confundido com hash). Ordena
+    candidatos por confiança e inclui sugestões de modo hashcat.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/hashid.py 5f4dcc3b5aa765d61d8327deb882cf99
+
+[PT] EXEMPLOS
+    # Cenário 1 — hash anónimo de um CTF
+    $ tools/hashid.py 5f4dcc3b5aa765d61d8327deb882cf99
+    Output esperado:
+        Input: 5f4dcc3b5aa765d61d8327deb882cf99 (32 hex)
+        Candidatos:
+          1. MD5         confiança: alta    hashcat -m 0
+          2. NTLM        confiança: alta    hashcat -m 1000
+          3. MD4         confiança: média   hashcat -m 900
+          4. LM          confiança: baixa   hashcat -m 3000
+
+    # Cenário 2 — hash bcrypt
+    $ tools/hashid.py '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz...'
+
+    # Cenário 3 — de stdin (útil com `head /etc/shadow`)
+    $ echo '$6$saltsaltsalt$...' | tools/hashid.py -
+
+[PT] FLAGS
+    Para além das universais: nenhuma.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Pelo menos um candidato identificado
+    2  Input vazio ou formato inválido
+
+[PT] DICAS
+    - 32 hex é ambíguo: a confusão mais comum é MD5 vs NTLM. O contexto
+      decide: ficheiro shadow → MD5-crypt; dump de SAM → NTLM.
+    - `$2a` e `$2b` em bcrypt diferem por uma correção de bug de
+      wraparound; ambos partem com hashcat -m 3200.
+    - Os números de modo hashcat no output são os reais a passar:
+      `hashcat -m 1000 hash.txt rockyou.txt`.
+
+================================================================================
+5. CREDENTIALS & VULNERABILITIES
+================================================================================
+   [password_strength, secrets_scan, cve_lookup]
+
+--------------------------------------------------------------------------------
+5.1 password_strength.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Analyze password strength locally (length, character classes,
+    entropy bits, 0-10 score) and check whether the password appears in
+    the Have I Been Pwned breach corpus. The HIBP check uses the
+    k-anonymity API: only the first 5 chars of the SHA-1 hash are sent
+    over the wire; the full password never leaves the machine.
+
+[EN] QUICK START
+    $ tools/password_strength.py            # interactive prompt, no echo
+
+[EN] EXAMPLES
+    # Scenario 1 — interactive (default)
+    $ tools/password_strength.py
+    Password: (typed silently)
+    Expected output:
+        Length:    12
+        Charsets:  lower upper digit symbol  (4 classes)
+        Entropy:   78.4 bits
+        Score:     8/10 (strong)
+        HIBP:      ✓ not in breach corpus
+
+    # Scenario 2 — from a script (no terminal)
+    $ echo -n "hunter2" | tools/password_strength.py --stdin
+    Expected output:
+        Length:    7
+        Charsets:  lower digit  (2 classes)
+        Entropy:   33.7 bits
+        Score:     2/10 (very weak)
+        HIBP:      ✗ found in 19383 breaches
+
+    # Scenario 3 — score only, skip the network call
+    $ echo -n "hunter2" | tools/password_strength.py --stdin --no-breach \
+        --lang pt --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --stdin             Read from stdin (otherwise prompts interactively).
+    --no-breach         Skip the HIBP check (no network).
+    --timeout SECONDS   HIBP request timeout. Default 10.
+
+[EN] EXIT CODES
+    0  Not in breach corpus (or --no-breach used)
+    1  Found in HIBP corpus
+    2  Empty password
+
+[EN] TIPS
+    - k-anonymity means HIBP only sees the first 5 SHA-1 hex chars (one
+      bucket of ~500 hashes). It returns the full bucket and the tool
+      filters locally for the match.
+    - Score caps at 10 — anything past ~80 bits of entropy already
+      maxes out. Use as a sanity check, not an oracle.
+    - For password generation, use a passphrase manager. This tool is
+      for checking, not generating.
+
+[PT] PROPÓSITO
+    Analisa a força de uma password localmente (comprimento, classes de
+    caracteres, bits de entropia, pontuação 0-10) e verifica se a
+    password aparece no corpus de breaches Have I Been Pwned. A
+    verificação HIBP usa a API de k-anonymity: só os primeiros 5
+    caracteres do SHA-1 são enviados pela rede; a password completa
+    nunca sai da máquina.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/password_strength.py            # prompt interativo, sem echo
+
+[PT] EXEMPLOS
+    # Cenário 1 — interativo (por omissão)
+    $ tools/password_strength.py
+    Password: (escrita em silêncio)
+    Output esperado:
+        Comprimento: 12
+        Classes:     minúsculas maiúsculas dígitos símbolos  (4 classes)
+        Entropia:    78.4 bits
+        Pontuação:   8/10 (forte)
+        HIBP:        ✓ não está no corpus de breaches
+
+    # Cenário 2 — de um script (sem terminal)
+    $ echo -n "hunter2" | tools/password_strength.py --stdin
+    Output esperado:
+        Comprimento: 7
+        Classes:     minúsculas dígitos  (2 classes)
+        Entropia:    33.7 bits
+        Pontuação:   2/10 (muito fraca)
+        HIBP:        ✗ encontrado em 19383 breaches
+
+    # Cenário 3 — pontuação apenas, sem chamada de rede
+    $ echo -n "hunter2" | tools/password_strength.py --stdin --no-breach \
+        --lang pt --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --stdin             Lê de stdin (caso contrário pergunta interativamente).
+    --no-breach         Salta a verificação HIBP (sem rede).
+    --timeout SEGUNDOS  Timeout do pedido HIBP. Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Não está no corpus de breaches (ou --no-breach usado)
+    1  Encontrada no corpus HIBP
+    2  Password vazia
+
+[PT] DICAS
+    - k-anonymity significa que o HIBP só vê os primeiros 5 caracteres
+      do SHA-1 (um bucket de ~500 hashes). Devolve o bucket completo e
+      o tool filtra localmente pela correspondência.
+    - A pontuação tem teto de 10 — qualquer coisa acima de ~80 bits de
+      entropia já satura. Usa como sanity check, não como oráculo.
+    - Para gerar passwords, usa um gestor de passphrases. Este tool é
+      para verificar, não para gerar.
+
+--------------------------------------------------------------------------------
+5.2 secrets_scan.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Scan a filesystem tree or a git history for committed credentials.
+    Filesystem mode walks the path (skipping binaries and common noise:
+    node_modules, .venv, __pycache__, etc.). Git mode runs `git log -p`
+    and inspects every diff hunk across history. Built-in patterns cover
+    AWS access keys, Stripe / Slack / GitHub / Google / Twilio /
+    SendGrid tokens, private keys (RSA/EC/PEM), JWT strings, .env-style
+    assignments, and database URLs. Generic `KEY = "value"` assignments
+    are gated by a Shannon-entropy threshold (≥ 3.5 bits/char) to cut
+    false positives.
+
+[EN] QUICK START
+    $ tools/secrets_scan.py                  # current directory
+    $ tools/secrets_scan.py --path ~/Projects/some-repo
+    $ tools/secrets_scan.py --git-history    # all commits
+
+[EN] EXAMPLES
+    # Scenario 1 — quick audit before publishing a repo
+    $ cd ~/Projects/my-project
+    $ tools/secrets_scan.py
+    Expected output (truncated):
+        Scanning: .
+        Findings (3):
+          src/config.py:18
+            pattern: aws_access_key_id
+            match:   AKIAIOSFODNN7EXAMPLE
+          tests/fixtures.json:42
+            pattern: stripe_secret_key
+            match:   sk_live_4eC39HqLyjWDarjtT...
+          .env.local:5
+            pattern: generic_secret (entropy 4.8 bits/char)
+            match:   API_TOKEN="aB3xJ9..."
+
+    # Scenario 2 — scan a different repo
+    $ tools/secrets_scan.py --path /tmp/cloned-target
+
+    # Scenario 3 — historical scan (commits + diffs)
+    $ tools/secrets_scan.py --git-history --lang pt --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --path DIR          Directory to scan. Default: current dir.
+    --git-history       Scan `git log -p` (all commits) instead of the
+                        working tree.
+
+[EN] EXIT CODES
+    0  No secrets found
+    1  Findings present
+    2  Bad path, or --git-history used outside a git repo
+
+[EN] TIPS
+    - --git-history scans everything, including files now deleted —
+      that's the whole point. A leaked secret committed once is leaked
+      forever until you rotate it.
+    - Rotate the secret first, redact later. `git filter-repo` or
+      `git filter-branch` can rewrite history, but you also have to
+      force-push and coordinate with collaborators.
+    - The entropy gate trims noise but allows occasional false positives
+      for high-entropy non-secret strings (UUIDs, large hashes). Review
+      manually before action.
+
+[PT] PROPÓSITO
+    Faz scan a uma árvore do sistema de ficheiros ou ao histórico do git
+    à procura de credenciais comprometidas. O modo filesystem percorre o
+    path (saltando binários e ruído comum: node_modules, .venv,
+    __pycache__, etc.). O modo git corre `git log -p` e inspeciona cada
+    hunk de diff ao longo do histórico. Padrões embutidos cobrem chaves
+    AWS, tokens Stripe / Slack / GitHub / Google / Twilio / SendGrid,
+    chaves privadas (RSA/EC/PEM), strings JWT, atribuições estilo .env,
+    e URLs de bases de dados. Atribuições genéricas `KEY = "valor"`
+    passam por um filtro de entropia de Shannon (≥ 3.5 bits/char) para
+    cortar falsos positivos.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/secrets_scan.py                   # diretório atual
+    $ tools/secrets_scan.py --path ~/Projects/algum-repo
+    $ tools/secrets_scan.py --git-history     # todos os commits
+
+[PT] EXEMPLOS
+    # Cenário 1 — auditoria rápida antes de publicar um repo
+    $ cd ~/Projects/o-meu-projeto
+    $ tools/secrets_scan.py
+    Output esperado (truncado):
+        A analisar: .
+        Findings (3):
+          src/config.py:18
+            padrão: aws_access_key_id
+            match:  AKIAIOSFODNN7EXAMPLE
+          tests/fixtures.json:42
+            padrão: stripe_secret_key
+            match:  sk_live_4eC39HqLyjWDarjtT...
+          .env.local:5
+            padrão: generic_secret (entropia 4.8 bits/char)
+            match:  API_TOKEN="aB3xJ9..."
+
+    # Cenário 2 — analisar outro repo
+    $ tools/secrets_scan.py --path /tmp/cloned-target
+
+    # Cenário 3 — scan histórico (commits + diffs)
+    $ tools/secrets_scan.py --git-history --lang pt --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --path DIR          Diretório a analisar. Por omissão: atual.
+    --git-history       Analisa `git log -p` (todos os commits) em vez
+                        da árvore de trabalho.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Sem segredos encontrados
+    1  Findings presentes
+    2  Path inválido, ou --git-history fora de um repo git
+
+[PT] DICAS
+    - --git-history analisa tudo, incluindo ficheiros agora apagados —
+      é exatamente o objetivo. Um segredo commitado uma vez está
+      comprometido para sempre até ser rodado.
+    - Roda o segredo primeiro, redação depois. `git filter-repo` ou
+      `git filter-branch` permitem reescrever o histórico, mas tens de
+      fazer force-push e coordenar com colaboradores.
+    - O filtro de entropia corta ruído mas deixa passar falsos positivos
+      ocasionais para strings de alta entropia que não são segredos
+      (UUIDs, hashes grandes). Revê manualmente antes de agir.
+
+--------------------------------------------------------------------------------
+5.3 cve_lookup.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Fetch CVE details from the National Vulnerability Database (NVD)
+    v2 API. No auth needed for low-volume queries; NVD rate-limits to
+    5 requests / 30 seconds without an API key. Output includes
+    description, CVSS v3 / v2 scores and vectors, weaknesses (CWE),
+    affected CPE strings, and references tagged by NVD (Patch,
+    Exploit, Vendor Advisory, etc.).
+
+[EN] QUICK START
+    $ tools/cve_lookup.py CVE-2021-44228
+
+[EN] EXAMPLES
+    # Scenario 1 — research Log4Shell
+    $ tools/cve_lookup.py CVE-2021-44228
+    Expected output (truncated):
+        ID:          CVE-2021-44228
+        Published:   2021-12-10
+        Last update: 2024-04-25
+        Severity:    CRITICAL  (CVSS 3.1 base 10.0)
+        Vector:      AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H
+        CWE:         CWE-20, CWE-400, CWE-502
+        Description:
+          Apache Log4j2 2.0-beta9 through 2.15.0 (excluding security
+          releases 2.12.2, 2.12.3, and 2.3.1) JNDI features used in...
+        Affected:    cpe:2.3:a:apache:log4j:2.0:*:*:*:*:*:*:*  (and 53 more)
+        References:
+          [Patch]    https://logging.apache.org/log4j/2.x/security.html
+          [Exploit]  https://github.com/...
+          ...
+
+    # Scenario 2 — JSON for integration
+    $ tools/cve_lookup.py CVE-2024-3094 --json
+
+    # Scenario 3 — PT-PT
+    $ tools/cve_lookup.py CVE-2014-0160 --lang pt   # Heartbleed
+
+[EN] FLAGS
+    Beyond the universals: only --timeout SECONDS (default 10).
+
+[EN] EXIT CODES
+    0  CVE found
+    1  CVE not in NVD (yet)
+    2  Bad CVE format (must be CVE-YYYY-NNNN+)
+    3  API error or rate-limited
+
+[EN] TIPS
+    - For NVD-API-key users, set NVD_API_KEY env var (raises rate limit
+      to 50 req / 30s).
+    - "Affected" CPE strings are noisy. The text description is usually
+      the better way to confirm whether your stack is vulnerable.
+    - Pair with tech_fingerprint: once you know "WordPress 5.7", you can
+      search NVD for CVEs filed against that version.
+
+[PT] PROPÓSITO
+    Obtém detalhes de CVE da NVD (National Vulnerability Database) via
+    a API v2. Sem auth necessária para baixos volumes; o NVD limita a
+    5 pedidos / 30 segundos sem API key. O output inclui descrição,
+    pontuações e vetores CVSS v3 / v2, fraquezas (CWE), strings CPE
+    afetadas, e referências etiquetadas pelo NVD (Patch, Exploit,
+    Vendor Advisory, etc.).
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/cve_lookup.py CVE-2021-44228
+
+[PT] EXEMPLOS
+    # Cenário 1 — investigar Log4Shell
+    $ tools/cve_lookup.py CVE-2021-44228
+    Output esperado (truncado):
+        ID:           CVE-2021-44228
+        Publicado:    2021-12-10
+        Atualizado:   2024-04-25
+        Severidade:   CRÍTICA  (CVSS 3.1 base 10.0)
+        Vetor:        AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H
+        CWE:          CWE-20, CWE-400, CWE-502
+        Descrição:
+          Apache Log4j2 2.0-beta9 a 2.15.0 (excluindo as versões de
+          segurança 2.12.2, 2.12.3, e 2.3.1) — funcionalidades JNDI...
+        Afetados:     cpe:2.3:a:apache:log4j:2.0:*:*:*:*:*:*:*  (mais 53)
+        Referências:
+          [Patch]     https://logging.apache.org/log4j/2.x/security.html
+          [Exploit]   https://github.com/...
+          ...
+
+    # Cenário 2 — JSON para integração
+    $ tools/cve_lookup.py CVE-2024-3094 --json
+
+    # Cenário 3 — PT-PT
+    $ tools/cve_lookup.py CVE-2014-0160 --lang pt   # Heartbleed
+
+[PT] FLAGS
+    Para além das universais: apenas --timeout SEGUNDOS (por omissão 10).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  CVE encontrado
+    1  CVE não está no NVD (ainda)
+    2  Formato CVE inválido (tem de ser CVE-AAAA-NNNN+)
+    3  Erro de API ou rate-limit
+
+[PT] DICAS
+    - Para utilizadores com NVD API key, define a env var NVD_API_KEY
+      (sobe o rate limit para 50 pedidos / 30s).
+    - As strings CPE "afetadas" são ruidosas. A descrição em texto é
+      normalmente o melhor caminho para confirmar se o teu stack é
+      vulnerável.
+    - Combina com tech_fingerprint: sabendo "WordPress 5.7", pesquisa
+      no NVD por CVEs registados contra essa versão.
+
+================================================================================
+6. CRYPTO / CTF
+================================================================================
+   [multidecode, xor_crack]
+
+--------------------------------------------------------------------------------
+6.1 multidecode.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Auto-detect and decode common encodings: Base64, Base32, hex, URL
+    percent-encoding, binary (0/1 strings), ROT13. Useful when a CTF
+    drops a suspicious string in your lap or you see a payload in HTTP
+    traffic. `--cascade` recursively decodes until the result stops
+    looking encoded (e.g. Base64 of Base64 of hex → final plaintext).
+
+[EN] QUICK START
+    $ tools/multidecode.py "SGVsbG8gd29ybGQh"
+
+[EN] EXAMPLES
+    # Scenario 1 — single Base64
+    $ tools/multidecode.py "SGVsbG8gd29ybGQh"
+    Expected output:
+        Tried: Base64 → "Hello world!"  ✓ readable
+               Base32 → (invalid alphabet)
+               hex    → (odd length)
+               URL    → "SGVsbG8gd29ybGQh"  (no change)
+               binary → (non-binary char)
+               ROT13  → "FUiyy0 dbeyq!"     (not readable)
+
+    # Scenario 2 — URL-encoded path
+    $ tools/multidecode.py "%2Fetc%2Fpasswd" --lang pt
+
+    # Scenario 3 — hex from stdin (e.g. from xxd)
+    $ echo -n "48656c6c6f" | tools/multidecode.py -
+
+    # Scenario 4 — nested encoding (Base64 of Base64)
+    $ tools/multidecode.py "VkdobElHSnliM2R1SUdadmVB" --cascade
+    Expected output: Base64 → Base64 → "The brown fox"
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --cascade           Recursively decode until nothing changes.
+
+[EN] EXIT CODES
+    0  At least one decoding succeeded
+    2  Empty input
+    3  Stdin error
+
+[EN] TIPS
+    - The "readable" check is heuristic (≥ 90% ASCII printable). Binary
+      payloads that happen to be valid Base64 of binary will not be
+      flagged readable — that's expected.
+    - For ambiguous strings, look at the output of all candidates, not
+      just the readable ones. Sometimes the answer is in ROT13 of a
+      Base64-looking string.
+    - `--cascade` will not detect cycles; if you suspect an infinite
+      loop, run without --cascade and decode manually one step at a time.
+
+[PT] PROPÓSITO
+    Auto-deteta e decodifica encodings comuns: Base64, Base32, hex, URL
+    percent-encoding, binário (strings 0/1), ROT13. Útil quando um CTF
+    te deixa cair uma string suspeita ou vês um payload em tráfego
+    HTTP. `--cascade` decodifica recursivamente até o resultado deixar
+    de parecer encoded (ex: Base64 de Base64 de hex → texto claro final).
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/multidecode.py "SGVsbG8gd29ybGQh"
+
+[PT] EXEMPLOS
+    # Cenário 1 — Base64 simples
+    $ tools/multidecode.py "SGVsbG8gd29ybGQh"
+    Output esperado:
+        Testados: Base64 → "Hello world!"  ✓ legível
+                  Base32 → (alfabeto inválido)
+                  hex    → (comprimento ímpar)
+                  URL    → "SGVsbG8gd29ybGQh"  (sem alteração)
+                  binário → (caracter não binário)
+                  ROT13  → "FUiyy0 dbeyq!"     (não legível)
+
+    # Cenário 2 — caminho URL-encoded
+    $ tools/multidecode.py "%2Fetc%2Fpasswd" --lang pt
+
+    # Cenário 3 — hex de stdin (ex: do xxd)
+    $ echo -n "48656c6c6f" | tools/multidecode.py -
+
+    # Cenário 4 — encoding aninhado (Base64 de Base64)
+    $ tools/multidecode.py "VkdobElHSnliM2R1SUdadmVB" --cascade
+    Output esperado: Base64 → Base64 → "The brown fox"
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --cascade           Decodifica recursivamente até nada mudar.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Pelo menos uma decodificação foi bem-sucedida
+    2  Input vazio
+    3  Erro de stdin
+
+[PT] DICAS
+    - O teste de "legibilidade" é heurístico (≥ 90% ASCII imprimível).
+      Payloads binários que sejam Base64 válido de binário não serão
+      assinalados como legíveis — é esperado.
+    - Para strings ambíguas, olha para o output de todos os candidatos,
+      não só os legíveis. Às vezes a resposta está em ROT13 de uma
+      string que parece Base64.
+    - `--cascade` não deteta ciclos; se suspeitas de loop infinito,
+      corre sem --cascade e decodifica manualmente passo a passo.
+
+--------------------------------------------------------------------------------
+6.2 xor_crack.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Recover plaintext from XOR-encrypted ciphertext using English letter-
+    frequency analysis. Single-byte mode brute-forces all 256 keys and
+    ranks candidates by English score (Cryptopals challenge #3 in one
+    command). Multi-byte mode uses the Index of Coincidence to guess
+    the key length, then solves each key byte independently
+    (Cryptopals challenge #6). Input is hex by default; `--raw` reads
+    raw binary from stdin.
+
+[EN] QUICK START
+    $ tools/xor_crack.py 1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736
+
+[EN] EXAMPLES
+    # Scenario 1 — single-byte XOR (Cryptopals #3)
+    $ tools/xor_crack.py 1b37373331363f78151b7f2b78343133...
+    Expected output:
+        Single-byte XOR — top candidates (34 bytes):
+          0x58 ('X')  score +6.35  :  Cooking MC's like a pound of bacon
+          0x78 ('x')  score +6.33  :  cOOKING MC'S LIKE A POUND OF BACON
+          0x52 ('R')  score +4.46  :  Ieeacdm*GI ...
+          ...
+
+    # Scenario 2 — multi-byte with auto-detection (Cryptopals #6 excerpt)
+    $ tools/xor_crack.py <hex-of-ciphertext>
+    Expected output:
+        Index of Coincidence by key length:
+          klen 3: IC = 0.0421
+          klen 6: IC = 0.0658  ← best
+          klen 9: IC = 0.0418
+          ...
+        Best key length: 6
+        Recovered key: 49434549415f4d (hex) / "ICEMAN_M" (ascii?)
+        Plaintext: I'm back and I'm ringin' the bell ...
+
+    # Scenario 3 — known key length (force it)
+    $ tools/xor_crack.py <hex> --key-len 3
+
+    # Scenario 4 — decrypt with a known key
+    $ tools/xor_crack.py <hex> --key 6b6579
+
+    # Scenario 5 — raw binary input from stdin
+    $ cat cipher.bin | tools/xor_crack.py - --raw
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --raw           Read raw bytes from stdin (use with '-').
+    --key-len N     Force key length N (skip auto-detection).
+    --max-len N     Max key length to consider. Default 16.
+    --top TOP       Number of top candidates for single-byte. Default 5.
+    --key HEX       Decrypt with a known key (hex) — skip cracking.
+
+[EN] EXIT CODES
+    0  Cracking attempted (regardless of how "real" the plaintext looks)
+    2  Invalid hex or empty input
+
+[EN] TIPS
+    - English frequency analysis assumes English plaintext. For other
+      languages, the scoring will mislead — be ready to spot it.
+    - IC is a heuristic. The best klen is usually right but not always.
+      Try the top 3 candidates if the plaintext looks wrong.
+    - For one-time-pad (key length == plaintext length), XOR is
+      uncrackable. The IC table will be flat at 0.038 (random).
+
+[PT] PROPÓSITO
+    Recupera texto claro a partir de ciphertext XOR usando análise de
+    frequência de letras em inglês. O modo de byte único faz
+    brute-force a todas as 256 chaves e ordena candidatos por
+    pontuação inglesa (Cryptopals challenge #3 num comando). O modo
+    multi-byte usa o Índice de Coincidência para adivinhar o
+    comprimento da chave, depois resolve cada byte da chave
+    independentemente (Cryptopals challenge #6). Input é hex por
+    omissão; `--raw` lê bytes binários de stdin.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/xor_crack.py 1b37373331363f78151b7f2b78343133...
+
+[PT] EXEMPLOS
+    # Cenário 1 — XOR de byte único (Cryptopals #3)
+    $ tools/xor_crack.py 1b37373331363f78151b7f2b78343133...
+    Output esperado:
+        XOR de byte único — melhores candidatos (34 bytes):
+          0x58 ('X')  pontuação +6.35  :  Cooking MC's like a pound of bacon
+          0x78 ('x')  pontuação +6.33  :  cOOKING MC'S LIKE A POUND OF BACON
+          ...
+
+    # Cenário 2 — multi-byte com auto-deteção (excerto Cryptopals #6)
+    $ tools/xor_crack.py <hex-do-ciphertext>
+    Output esperado:
+        Índice de Coincidência por tamanho de chave:
+          klen 3: IC = 0.0421
+          klen 6: IC = 0.0658  ← melhor
+          klen 9: IC = 0.0418
+          ...
+        Melhor tamanho de chave: 6
+        Chave recuperada: 49434549415f4d (hex) / "ICEMAN_M" (ascii?)
+        Texto claro: I'm back and I'm ringin' the bell ...
+
+    # Cenário 3 — tamanho de chave conhecido (forçar)
+    $ tools/xor_crack.py <hex> --key-len 3
+
+    # Cenário 4 — decifrar com chave conhecida
+    $ tools/xor_crack.py <hex> --key 6b6579
+
+    # Cenário 5 — input binário cru de stdin
+    $ cat cipher.bin | tools/xor_crack.py - --raw
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --raw           Lê bytes binários de stdin (usar com '-').
+    --key-len N     Força tamanho de chave N (sem auto-deteção).
+    --max-len N     Tamanho máximo de chave a considerar. Por omissão 16.
+    --top TOP       Número de candidatos para byte único. Por omissão 5.
+    --key HEX       Decifra com chave conhecida (hex) — sem cracking.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Cracking tentado (independente do quão "real" parece o texto claro)
+    2  Hex inválido ou input vazio
+
+[PT] DICAS
+    - A análise de frequência inglesa assume texto claro em inglês. Para
+      outras línguas, a pontuação engana — está preparado para detetar.
+    - O IC é uma heurística. O melhor klen normalmente está certo mas
+      não sempre. Tenta os 3 candidatos do topo se o texto parecer mal.
+    - Para one-time-pad (tamanho de chave == tamanho do texto claro),
+      XOR é inquebrável. A tabela IC fica plana em 0.038 (aleatório).
+
+================================================================================
+7. ORCHESTRATION
+================================================================================
+   [recon]
+
+--------------------------------------------------------------------------------
+7.1 recon.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    One-command reconnaissance orchestrator that composes the other
+    tools. Workflow: (1) run subfinder to enumerate subdomains;
+    (2) for each resolved subdomain (top N) in parallel, run
+    check_headers + tls_inspect + cookie_check; (3) run dns_records
+    against the base domain; (4) aggregate everything into a single
+    Markdown report. Use it as the starting point of any deep-dive on
+    a target, then drill in with individual tools where needed.
+
+[EN] QUICK START
+    $ tools/recon.py example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — quick recon on a bug bounty target
+    $ tools/recon.py target.example --top 10
+    Expected output: Markdown report on stdout with sections per
+    subdomain, summarising header status, TLS findings, and cookie
+    issues. ~200-500 lines depending on subdomain count.
+
+    # Scenario 2 — write report to a file
+    $ tools/recon.py target.example --top 20 \
+        --output target-recon-$(date +%F).md
+
+    # Scenario 3 — PT-PT report for a writeup
+    $ tools/recon.py target.example --lang pt --output recon.md
+
+    # Scenario 4 — raw JSON output for programmatic processing
+    $ tools/recon.py target.example --json > recon.json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version):
+    --top N             Max subdomains to scan per host. Default 10.
+    --threads N         Parallel per-host scans. Default 6.
+    --output FILE, -o   Write Markdown to a file instead of stdout.
+
+[EN] EXIT CODES
+    0  Recon completed
+    2  Bad domain
+    3  Network error or sibling tool failure
+
+[EN] TIPS
+    - Default --top 10 is intentionally low. For real recon, bump to
+      --top 50 and be patient (a few minutes).
+    - Each per-host scan is independent and can fail without aborting
+      the whole report — failures are noted inline.
+    - The Markdown report is a good starting draft for a writeup: open
+      it, replace recon.py's prose with your own commentary, keep the
+      tables.
+
+[PT] PROPÓSITO
+    Orquestrador de reconhecimento que compõe os outros tools num
+    comando. Fluxo: (1) corre subfinder para enumerar subdomínios;
+    (2) para cada subdomínio resolvido (top N) em paralelo, corre
+    check_headers + tls_inspect + cookie_check; (3) corre dns_records
+    contra o domínio base; (4) agrega tudo num relatório Markdown
+    único. Usa-o como ponto de partida de qualquer deep-dive a um
+    alvo, depois aprofunda com tools individuais onde necessário.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/recon.py example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — recon rápido a um alvo de bug bounty
+    $ tools/recon.py target.example --top 10
+    Output esperado: relatório Markdown em stdout com secções por
+    subdomínio, a sumariar estado dos headers, findings TLS, e
+    problemas de cookies. ~200-500 linhas dependendo do número de
+    subdomínios.
+
+    # Cenário 2 — escrever relatório para ficheiro
+    $ tools/recon.py target.example --top 20 \
+        --output target-recon-$(date +%F).md
+
+    # Cenário 3 — relatório PT-PT para um writeup
+    $ tools/recon.py target.example --lang pt --output recon.md
+
+    # Cenário 4 — output JSON cru para processamento programático
+    $ tools/recon.py target.example --json > recon.json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version):
+    --top N             Subdomínios máximos a analisar por host. Por omissão 10.
+    --threads N         Scans paralelos por host. Por omissão 6.
+    --output FICHEIRO, -o   Escreve Markdown para ficheiro em vez de stdout.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Recon completo
+    2  Domínio inválido
+    3  Erro de rede ou falha de um tool irmão
+
+[PT] DICAS
+    - O --top 10 por omissão é intencionalmente baixo. Para recon a
+      sério, sobe para --top 50 e tem paciência (alguns minutos).
+    - Cada scan por host é independente e pode falhar sem abortar o
+      relatório todo — as falhas são anotadas inline.
+    - O relatório Markdown é um bom rascunho inicial para um writeup:
+      abre-o, substitui a prosa do recon.py por comentário teu, mantém
+      as tabelas.
+
+================================================================================
+8. HACKTHEBOX
+================================================================================
+   [htb_stats]
+
+--------------------------------------------------------------------------------
+8.1 htb_stats.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Generate the Markdown for a HackTheBox profile badge, ready to paste
+    into a README or About page (no API token required for the badge
+    itself). Optionally fetch live profile stats — rank, points, machine
+    owns, respects — via the HTB v4 API when an API token is set via
+    `--token` or the `HTB_TOKEN` environment variable.
+
+[EN] QUICK START
+    $ tools/htb_stats.py 12345         # your HTB user ID (numeric)
+
+[EN] EXAMPLES
+    # Scenario 1 — badge only (no token needed)
+    $ tools/htb_stats.py 12345 --badge-only
+    Expected output:
+        [![HTB Profile](https://www.hackthebox.com/badge/image/12345)
+        ](https://app.hackthebox.com/users/12345)
+
+    # Scenario 2 — full stats with API token
+    $ HTB_TOKEN=eyJ0eXAiOi... tools/htb_stats.py 12345
+    Expected output (truncated):
+        Username:  Luis
+        Rank:      Hacker
+        Points:    142
+        Owns:      User 18 / System 12
+        Respects:  4
+        Markdown:  [![HTB Profile]...
+
+    # Scenario 3 — PT-PT, JSON
+    $ tools/htb_stats.py 12345 --badge-only --lang pt --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --token TOKEN       HTB API bearer token (or set HTB_TOKEN env).
+    --badge-only        Skip the API call, print badge markdown only.
+    --timeout SECONDS   Default 10.
+
+[EN] EXIT CODES
+    0  Badge generated (and stats fetched if token provided)
+    1  Stats fetch failed (network or auth issue)
+    2  Non-numeric user ID
+    3  API error
+
+[EN] TIPS
+    - The badge URL works without auth — that's what makes the
+      --badge-only path useful even when you don't yet have an account
+      with profile data.
+    - HTB tokens are tied to your account. Don't commit them. Use the
+      env var or a local .env, not a CLI flag in shell history.
+    - HTB API changes break the stats fetch sometimes. The badge URL is
+      stable.
+
+[PT] PROPÓSITO
+    Gera o Markdown para um badge de perfil HackTheBox, pronto para
+    colar num README ou página About (sem necessidade de API token para
+    o badge em si). Opcionalmente vai buscar estatísticas em direto do
+    perfil — rank, pontos, máquinas conquistadas, respects — via a API
+    HTB v4 quando um API token é definido com `--token` ou a env var
+    `HTB_TOKEN`.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/htb_stats.py 12345         # o teu HTB user ID (numérico)
+
+[PT] EXEMPLOS
+    # Cenário 1 — apenas badge (sem token)
+    $ tools/htb_stats.py 12345 --badge-only
+    Output esperado:
+        [![HTB Profile](https://www.hackthebox.com/badge/image/12345)
+        ](https://app.hackthebox.com/users/12345)
+
+    # Cenário 2 — estatísticas completas com API token
+    $ HTB_TOKEN=eyJ0eXAiOi... tools/htb_stats.py 12345
+    Output esperado (truncado):
+        Utilizador: Luis
+        Rank:       Hacker
+        Pontos:     142
+        Owns:       User 18 / System 12
+        Respects:   4
+        Markdown:   [![HTB Profile]...
+
+    # Cenário 3 — PT-PT, JSON
+    $ tools/htb_stats.py 12345 --badge-only --lang pt --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --token TOKEN       API bearer token HTB (ou env HTB_TOKEN).
+    --badge-only        Salta a chamada API, imprime só o badge.
+    --timeout SEGUNDOS  Por omissão 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Badge gerado (e estatísticas se token fornecido)
+    1  Falha ao obter estatísticas (rede ou auth)
+    2  User ID não numérico
+    3  Erro de API
+
+[PT] DICAS
+    - O URL do badge funciona sem auth — é por isso que --badge-only é
+      útil mesmo quando ainda não tens conta com dados de perfil.
+    - Os tokens HTB estão ligados à tua conta. Não fazer commit. Usa a
+      env var ou um .env local, não uma flag de CLI no histórico da shell.
+    - Alterações à API HTB partem ocasionalmente o fetch de
+      estatísticas. O URL do badge é estável.
+
+================================================================================
+9. PORTFOLIO
+================================================================================
+   [new_writeup]
+
+--------------------------------------------------------------------------------
+9.1 new_writeup.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Generate a writeup skeleton in `_posts/` ready for content. The file
+    follows the Chirpy frontmatter convention (title, date, categories,
+    tags) and pre-populates the standard pentest-writeup sections:
+    Overview, Reconnaissance, Initial Access, Privilege Escalation,
+    Lessons Learned, References. The name is slugified for the
+    filename. Refuses to overwrite an existing file.
+
+[EN] QUICK START
+    $ tools/new_writeup.py "Vulnversity"
+
+[EN] EXAMPLES
+    # Scenario 1 — a TryHackMe easy room
+    $ tools/new_writeup.py "Vulnversity" --platform thm --difficulty easy
+    Expected output:
+        created: _posts/2026-05-18-vulnversity.md
+
+    # Scenario 2 — a HackTheBox box with extra tags
+    $ tools/new_writeup.py "Soccer" --platform htb --tags web,enumeration
+
+    # Scenario 3 — a PortSwigger lab
+    $ tools/new_writeup.py "Reflected XSS into HTML context" \
+        --platform portswigger --difficulty medium \
+        --tags xss,web
+
+    # Scenario 4 — back-dating a writeup
+    $ tools/new_writeup.py "Old Box" --date 2026-04-15
+
+[EN] FLAGS
+    Beyond standard --version:
+    --platform {thm,htb,portswigger,other}   Default: thm.
+    --difficulty {info,easy,medium,hard,insane}  Default: easy.
+    --tags "a,b,c"            Comma-separated extra tags.
+    --date YYYY-MM-DD         Override date. Default: today.
+
+[EN] EXIT CODES
+    0  File created
+    1  File already exists (no overwrite)
+    2  Bad date format or empty slug
+
+[EN] TIPS
+    - The `--platform` choice prepopulates the first tag and the
+      "Platform" field in the frontmatter. Pick one that matches.
+    - The default difficulty `easy` keeps you honest: claiming `insane`
+      on the first writeup will not impress anyone.
+    - After generation, fill in the body. Don't ship empty templates —
+      this tool is for skeletons, not content.
+
+[PT] PROPÓSITO
+    Gera um esqueleto de writeup em `_posts/` pronto para conteúdo. O
+    ficheiro segue a convenção de frontmatter do Chirpy (title, date,
+    categories, tags) e pré-popula as secções standard de writeup de
+    pentest: Overview, Reconnaissance, Initial Access, Privilege
+    Escalation, Lessons Learned, References. O nome é slugificado para
+    o nome do ficheiro. Recusa-se a sobrescrever ficheiros existentes.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/new_writeup.py "Vulnversity"
+
+[PT] EXEMPLOS
+    # Cenário 1 — uma sala easy do TryHackMe
+    $ tools/new_writeup.py "Vulnversity" --platform thm --difficulty easy
+    Output esperado:
+        created: _posts/2026-05-18-vulnversity.md
+
+    # Cenário 2 — uma box do HackTheBox com tags extra
+    $ tools/new_writeup.py "Soccer" --platform htb --tags web,enumeration
+
+    # Cenário 3 — um lab do PortSwigger
+    $ tools/new_writeup.py "Reflected XSS into HTML context" \
+        --platform portswigger --difficulty medium \
+        --tags xss,web
+
+    # Cenário 4 — back-dating de um writeup
+    $ tools/new_writeup.py "Caixa Antiga" --date 2026-04-15
+
+[PT] FLAGS
+    Para além de --version standard:
+    --platform {thm,htb,portswigger,other}   Por omissão: thm.
+    --difficulty {info,easy,medium,hard,insane}  Por omissão: easy.
+    --tags "a,b,c"            Tags extra separadas por vírgula.
+    --date AAAA-MM-DD         Sobrepõe a data. Por omissão: hoje.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Ficheiro criado
+    1  Ficheiro já existe (sem sobreposição)
+    2  Formato de data inválido ou slug vazio
+
+[PT] DICAS
+    - A escolha `--platform` pré-popula a primeira tag e o campo
+      "Platform" no frontmatter. Escolhe uma que corresponda.
+    - A difficulty `easy` por omissão mantém-te honesto: dizer `insane`
+      no primeiro writeup não impressiona ninguém.
+    - Depois da geração, preenche o corpo. Não publiques templates
+      vazios — este tool é para esqueletos, não para conteúdo.
+
+================================================================================
+END OF FILE · FIM DO FICHEIRO
+================================================================================

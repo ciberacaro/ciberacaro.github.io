@@ -2,6 +2,8 @@
 
 Small utilities used while building this portfolio. This directory is excluded from the Jekyll build (see `exclude:` in `_config.yml`), so nothing here is published as part of the site.
 
+> Looking for a long-form tutorial with scenarios, expected output and tips for every tool? See [`HOWTO.txt`](HOWTO.txt) (bilingual EN + PT-PT, ~2500 lines). This README is the quick reference.
+
 ## Conventions across the toolchain
 
 These rules hold for every Python tool in this directory unless its own section says otherwise:
