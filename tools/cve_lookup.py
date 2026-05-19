@@ -17,6 +17,7 @@ import json
 import re
 import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -89,12 +90,21 @@ def fetch_cve(cve_id: str, timeout: float = 30.0) -> dict | None:
     url = f"{NVD_URL}?cveId={cve_id}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     ctx = build_ssl_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-    vulns = payload.get("vulnerabilities") or []
-    if not vulns:
-        return None
-    return vulns[0].get("cve")
+    delay = 1.0
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            vulns = payload.get("vulnerabilities") or []
+            if not vulns:
+                return None
+            return vulns[0].get("cve")
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < 4:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise
 
 
 def parse(raw: dict, cve_id: str) -> CveInfo:

@@ -268,6 +268,7 @@ def main() -> int:
     for origin in origins:
         probes.append(probe(args.url, origin, "GET", args.timeout))
         probes.append(probe(args.url, origin, "OPTIONS", args.timeout))
+        probes.append(probe(args.url, origin, "POST", args.timeout))
     issues = evaluate(probes, host, args.lang)
 
     if args.json:

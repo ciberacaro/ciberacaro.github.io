@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import hashlib
+import hmac
 import json
 import re
 import sys
@@ -113,10 +115,18 @@ ISSUE_TEXT = {
                "Tokens longos aumentam o impacto se forem roubados. Usa tokens curtos + refresh."),
     },
     "weak_kid": {
-        "en": ("`kid` looks like a path ({}) — possible LFI / path traversal",
+        "en": ("`kid` looks like a path or contains null bytes ({}) — possible LFI / injection",
                "Server-side, validate kid is one of a known list, not a path."),
-        "pt": ("`kid` parece um path ({}) — possível LFI / path traversal",
+        "pt": ("`kid` parece um path ou contém null bytes ({}) — possível LFI / injeção",
                "No servidor, valida que kid é um de uma lista conhecida, não um path."),
+    },
+    "empty_secret": {
+        "en": ("Token signed with an empty HMAC secret",
+               "The signature was verified with an empty key — any attacker can forge arbitrary tokens. "
+               "Set a strong random secret of at least 256 bits."),
+        "pt": ("Token assinado com um secret HMAC vazio",
+               "A assinatura foi verificada com uma chave vazia — qualquer atacante pode forjar tokens. "
+               "Define um secret aleatório forte de pelo menos 256 bits."),
     },
 }
 
@@ -144,6 +154,7 @@ class JWTInfo:
     header: dict
     payload: dict
     signature_b64: str
+    signing_input: str = ""
     issues: list[Issue] = field(default_factory=list)
 
 
@@ -162,7 +173,8 @@ def parse_jwt(token: str, lang: str) -> JWTInfo:
         payload = json.loads(b64url_decode(parts[1]))
     except (binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
         raise ValueError(f"{L['err_decode']}: {e}")
-    return JWTInfo(header=header, payload=payload, signature_b64=parts[2])
+    return JWTInfo(header=header, payload=payload, signature_b64=parts[2],
+                   signing_input=parts[0] + "." + parts[1])
 
 
 def fmt_timedelta(seconds: int, lang: str) -> str:
@@ -196,9 +208,18 @@ def evaluate(info: JWTInfo, lang: str) -> list[Issue]:
         issues.append(Issue("alg_unknown", t[0].format(alg_raw), t[0].format(alg_raw), t[1]))
 
     kid = h.get("kid")
-    if isinstance(kid, str) and ("/" in kid or ".." in kid):
+    if isinstance(kid, str) and ("/" in kid or ".." in kid or "\x00" in kid or "%00" in kid):
         t = ISSUE_TEXT["weak_kid"][lang]
         issues.append(Issue("weak_kid", t[0].format(kid), t[0].format(kid), t[1]))
+
+    # Test HMAC with empty secret for HS* algorithms
+    _HS_MAP = {"HS256": "sha256", "HS384": "sha384", "HS512": "sha512"}
+    if alg in _HS_MAP and info.signing_input:
+        digest = hmac.new(b"", info.signing_input.encode(), hashlib.new(_HS_MAP[alg])).digest()
+        expected = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+        if expected == info.signature_b64:
+            t = ISSUE_TEXT["empty_secret"][lang]
+            issues.append(Issue("empty_secret", t[0], t[0], t[1]))
 
     now = int(datetime.now(tz=timezone.utc).timestamp())
     exp = p.get("exp")

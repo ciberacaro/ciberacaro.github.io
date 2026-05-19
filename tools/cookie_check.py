@@ -119,6 +119,12 @@ ISSUE_TEXT = {
         "pt": ("Cookie '{}' tem expiração superior a 1 ano",
                "Cookies de longa duração são uma superfície de tracking persistente. Define Max-Age ≤ 1 ano para cookies tipo sessão, ≤ 30 dias quando possível."),
     },
+    "partitioned_without_secure": {
+        "en": ("Cookie '{}' has Partitioned attribute but is missing Secure",
+               "The Partitioned attribute (CHIPS) requires Secure. Browsers ignore Partitioned cookies without Secure."),
+        "pt": ("Cookie '{}' tem o atributo Partitioned mas falta Secure",
+               "O atributo Partitioned (CHIPS) requer Secure. Browsers ignoram cookies Partitioned sem Secure."),
+    },
 }
 
 
@@ -221,6 +227,11 @@ def evaluate(cookies: list[Cookie], target_host: str, scheme: str, lang: str) ->
                 t = ISSUE_TEXT["secure_prefix_violation"][lang]
                 issues.append(Issue("secure_prefix_violation", t[0].format(c.name), t[0].format(c.name), t[1]))
 
+        # Partitioned (CHIPS) requires Secure
+        if attrs.get("partitioned") and not has_secure:
+            t = ISSUE_TEXT["partitioned_without_secure"][lang]
+            issues.append(Issue("partitioned_without_secure", t[0].format(c.name), t[0].format(c.name), t[1]))
+
         # Long expiry / Max-Age (> 1 year)
         max_age_raw = attrs.get("max-age")
         if isinstance(max_age_raw, str):
@@ -275,6 +286,8 @@ def print_human(target: str, scheme: str, cookies: list[Cookie], issues: list[Is
             flags.append(f"Max-Age={c.attributes['max-age']}")
         if "expires" in c.attributes:
             flags.append(f"Expires={c.attributes['expires']}")
+        if c.attributes.get("partitioned"):
+            flags.append("Partitioned")
         flags_str = " | ".join(flags) if flags else "(no attributes set)"
         preview = c.value_preview if c.value_preview else "(empty)"
         print(f"\n  {c.name}")

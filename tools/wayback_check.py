@@ -125,15 +125,39 @@ def cdx_timeline(target_url: str, limit: int, timeout: float) -> list[dict]:
 
 def fetch_text(url: str, timeout: float) -> str:
     try:
-        body = _fetch(url, timeout=timeout)
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        ctx = build_ssl_context()
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            body = resp.read(500_000)
     except (urllib.error.URLError, socket.timeout):
         return ""
     return body.decode("utf-8", errors="replace")
 
 
+# Patterns that vary between snapshot and live without security relevance:
+# timestamps, CSRF tokens, nonces, long hex tokens.
+_DYNAMIC_RE = re.compile(
+    r"(?:csrf|_token|nonce|__requestverificationtoken|viewstate)"
+    r'[^"\'>\s]*'
+    r"|"
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"  # ISO 8601 timestamps
+    r"|"
+    r"\b\d{10,13}\b"                           # Unix timestamps
+    r"|"
+    r'["\']?[a-f0-9]{32,}["\']?',              # long hex tokens / hashes
+    re.IGNORECASE,
+)
+
+
 def normalise_lines(text: str) -> list[str]:
-    """Strip whitespace-only differences before diffing."""
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    """Strip whitespace-only differences and dynamic tokens before diffing."""
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        lines.append(_DYNAMIC_RE.sub("", line))
+    return lines
 
 
 def fmt_ts(ts: str) -> str:
@@ -147,7 +171,7 @@ def fmt_ts(ts: str) -> str:
 
 
 def print_human(target: str, snap: Snapshot, timeline: list[dict] | None,
-                diff_lines: list[str] | None, lang: str) -> None:
+                diff_lines: list[str] | None, lang: str, max_diff: int = 100) -> None:
     L = LABELS[lang]
     print(f"\n{L['url']}: {target}\n")
 
@@ -173,10 +197,10 @@ def print_human(target: str, snap: Snapshot, timeline: list[dict] | None,
         if not diff_lines:
             print(f"  {L['no_diff']}\n")
         else:
-            for line in diff_lines[:100]:
+            for line in diff_lines[:max_diff]:
                 print(f"  {line}")
-            if len(diff_lines) > 100:
-                print(f"  ... ({len(diff_lines) - 100} more)")
+            if len(diff_lines) > max_diff:
+                print(f"  ... ({len(diff_lines) - max_diff} more)")
             print()
 
 
@@ -191,6 +215,8 @@ def main() -> int:
     parser.add_argument("--timeline", action="store_true", help="Also list snapshots via the CDX API.")
     parser.add_argument("--limit", type=int, default=20, help="Max snapshots to list with --timeline (default 20).")
     parser.add_argument("--diff", action="store_true", help="Fetch the closest snapshot and diff against the live URL.")
+    parser.add_argument("--max-diff", type=int, default=100, metavar="N",
+                        help="Max diff lines to show with --diff (default 100).")
     parser.add_argument("--timeout", type=float, default=20.0)
     args = parser.parse_args()
     L = LABELS[args.lang]
@@ -234,7 +260,7 @@ def main() -> int:
         }
         print(json.dumps(out, indent=2, ensure_ascii=False))
     else:
-        print_human(args.url, snap, timeline, diff_lines, args.lang)
+        print_human(args.url, snap, timeline, diff_lines, args.lang, max_diff=args.max_diff)
 
     return 0 if snap.available else 1
 

@@ -2,18 +2,18 @@
 """Orchestrate reconnaissance against a domain by composing other tools.
 
 Workflow:
-  1. subfinder.py     — enumerate subdomains (crt.sh + DNS).
+  1. subfinder.py          — enumerate subdomains (crt.sh + DNS).
   2. For each resolved subdomain, run in parallel:
-       - check_headers.py  (security headers + COOP/COEP/CORP)
-       - tls_inspect.py    (cert info + issues)
-       - cookie_check.py   (Set-Cookie flags)
+       - check_headers.py    (security headers + COOP/COEP/CORP)
+       - tls_inspect.py      (cert info + issues)
+       - cookie_check.py     (Set-Cookie flags)
+       - tech_fingerprint.py (framework/WAF detection)
   3. Once, on the base domain:
-       - dns_records.py    (email auth + CAA)
+       - dns_records.py       (email auth + CAA + DKIM)
+       - subdomain_takeover.py (dangling CNAME detection)
   4. Aggregate everything into a single Markdown report.
 
-This is a wrapper around the tools that already exist — it doesn't
-re-implement their logic. Each tool is invoked as a subprocess and
-its --json output parsed.
+Networked checks try HTTPS first and fall back to HTTP for HTTP-only hosts.
 
 Examples:
     tools/recon.py example.com
@@ -55,6 +55,10 @@ LABELS = {
         "error": "Error",
         "skipped": "skipped (did not resolve)",
         "running": "Running",
+        "tech": "Technologies",
+        "takeover": "Subdomain takeover scan",
+        "takeover_vulnerable": "Potentially vulnerable subdomains",
+        "takeover_clean": "No takeover indicators found.",
         "summary": "Summary",
         "total_issues": "Total issues found across all hosts",
     },
@@ -74,6 +78,10 @@ LABELS = {
         "error": "Erro",
         "skipped": "saltado (não resolveu)",
         "running": "A executar",
+        "tech": "Tecnologias",
+        "takeover": "Scan de subdomain takeover",
+        "takeover_vulnerable": "Subdomínios potencialmente vulneráveis",
+        "takeover_clean": "Sem indicadores de takeover.",
         "summary": "Resumo",
         "total_issues": "Total de problemas encontrados em todos os hosts",
     },
@@ -87,6 +95,7 @@ class HostReport:
     headers: dict | None = None
     tls: dict | None = None
     cookies: dict | None = None
+    techfp: dict | None = None
     issues_count: int = 0
 
 
@@ -125,11 +134,23 @@ def dns_records(domain: str, lang: str, timeout: float = 30.0) -> dict | None:
     return run_tool([str(TOOLS_DIR / "dns_records.py"), domain, "--json", "--lang", lang], timeout=timeout)
 
 
-def headers_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
-    return run_tool(
-        [str(TOOLS_DIR / "check_headers.py"), f"https://{host}", "--json", "--lang", lang, "--timeout", "10"],
+def _run_with_http_fallback(tool: str, host: str, extra_args: list[str],
+                            lang: str, timeout: float) -> dict | None:
+    """Run a tool against https://host, falling back to http:// if HTTPS fails."""
+    result = run_tool(
+        [str(TOOLS_DIR / tool), f"https://{host}"] + extra_args + ["--json", "--lang", lang, "--timeout", "10"],
         timeout=timeout,
     )
+    if result is None:
+        result = run_tool(
+            [str(TOOLS_DIR / tool), f"http://{host}"] + extra_args + ["--json", "--lang", lang, "--timeout", "10"],
+            timeout=timeout,
+        )
+    return result
+
+
+def headers_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
+    return _run_with_http_fallback("check_headers.py", host, [], lang, timeout)
 
 
 def tls_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
@@ -140,8 +161,16 @@ def tls_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
 
 
 def cookies_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
+    return _run_with_http_fallback("cookie_check.py", host, [], lang, timeout)
+
+
+def techfp_for(host: str, lang: str, timeout: float = 20.0) -> dict | None:
+    return _run_with_http_fallback("tech_fingerprint.py", host, [], lang, timeout)
+
+
+def takeover_scan(domain: str, lang: str, timeout: float = 120.0) -> dict | None:
     return run_tool(
-        [str(TOOLS_DIR / "cookie_check.py"), f"https://{host}", "--json", "--lang", lang, "--timeout", "10"],
+        [str(TOOLS_DIR / "subdomain_takeover.py"), domain, "--json", "--lang", lang, "--timeout", "10"],
         timeout=timeout,
     )
 
@@ -158,7 +187,8 @@ def count_issues(host_report: HostReport) -> int:
 
 
 def render_report(domain: str, dns: dict | None, hosts: list[HostReport],
-                  total_subdomains: int, lang: str) -> str:
+                  total_subdomains: int, lang: str,
+                  takeover: dict | None = None) -> str:
     from datetime import datetime, timezone
     L = LABELS[lang]
     out: list[str] = []
@@ -210,6 +240,7 @@ def render_report(domain: str, dns: dict | None, hosts: list[HostReport],
         out.append(f"- **{L['headers']}:** {_headers_summary(host.headers, L)}")
         out.append(f"- **{L['tls']}:** {_tls_summary(host.tls, L)}")
         out.append(f"- **{L['cookies']}:** {_cookies_summary(host.cookies, L)}")
+        out.append(f"- **{L['tech']}:** {_techfp_summary(host.techfp, L)}")
         # Issue details
         all_issues = _collect_host_issues(host)
         if all_issues:
@@ -220,6 +251,24 @@ def render_report(domain: str, dns: dict | None, hosts: list[HostReport],
                 label = _issue_label(source, iss)
                 out.append(f"- ✗ [{source}] {label}")
         out.append("")
+
+    # ---- Subdomain takeover
+    out.append(f"## {L['takeover']}")
+    out.append("")
+    if takeover:
+        vulnerable = [r for r in takeover.get("results", []) if r.get("vulnerable")]
+        if vulnerable:
+            out.append(f"**{L['takeover_vulnerable']} ({len(vulnerable)}):**")
+            out.append("")
+            for r in vulnerable:
+                out.append(f"- ✗ `{r.get('subdomain')}` → `{r.get('cname')}` ({r.get('service', '?')})")
+                if r.get("evidence"):
+                    out.append(f"  - {r['evidence']}")
+        else:
+            out.append(f"_{L['takeover_clean']}_")
+    else:
+        out.append(f"_{L['error']}: subdomain_takeover.py returned no data._")
+    out.append("")
 
     # ---- Summary
     total = sum(count_issues(h) for h in hosts)
@@ -257,6 +306,17 @@ def _cookies_summary(c: dict | None, L: dict) -> str:
     return f"{n_cookies} cookies, {issues} {L['issues'].lower()}"
 
 
+def _techfp_summary(t: dict | None, L: dict) -> str:
+    if t is None:
+        return f"_{L['error']}_"
+    detections = t.get("detections", [])
+    if not detections:
+        return "—"
+    names = ", ".join(f"`{d.get('name', '?')}`" for d in detections[:6])
+    suffix = f" + {len(detections) - 6} more" if len(detections) > 6 else ""
+    return names + suffix
+
+
 def _issue_label(source: str, iss: dict) -> str:
     """Produce a short, scannable label for the issue regardless of source tool.
 
@@ -288,10 +348,10 @@ def scan_host(host_info: dict, lang: str) -> HostReport:
     host = host_info["hostname"]
     ips = host_info.get("ips", [])
     h = HostReport(hostname=host, ips=ips)
-    # Run the three checks. Each handles its own timeout.
     h.headers = headers_for(host, lang)
     h.tls = tls_for(host, lang)
     h.cookies = cookies_for(host, lang)
+    h.techfp = techfp_for(host, lang)
     h.issues_count = count_issues(h)
     return h
 
@@ -324,6 +384,9 @@ def main() -> int:
     print(f"{L['running']}: dns_records.py on {domain} …", file=sys.stderr)
     dns = dns_records(domain, args.lang)
 
+    print(f"{L['running']}: subdomain_takeover.py on {domain} …", file=sys.stderr)
+    takeover = takeover_scan(domain, args.lang)
+
     print(f"{L['running']}: {len(targets)} host scan(s) in parallel …", file=sys.stderr)
     hosts: list[HostReport] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
@@ -342,10 +405,12 @@ def main() -> int:
             "total_subdomains_resolved": total_subdomains,
             "scanned": len(hosts),
             "dns": dns,
+            "takeover": takeover,
             "hosts": [
                 {
                     "hostname": h.hostname, "ips": h.ips,
-                    "headers": h.headers, "tls": h.tls, "cookies": h.cookies,
+                    "headers": h.headers, "tls": h.tls,
+                    "cookies": h.cookies, "techfp": h.techfp,
                     "issues_count": h.issues_count,
                 }
                 for h in hosts
@@ -353,7 +418,7 @@ def main() -> int:
         }
         rendered = json.dumps(out, indent=2, ensure_ascii=False)
     else:
-        rendered = render_report(domain, dns, hosts, total_subdomains, args.lang)
+        rendered = render_report(domain, dns, hosts, total_subdomains, args.lang, takeover=takeover)
 
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")

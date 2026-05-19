@@ -88,7 +88,7 @@ PATTERNS = (
      "AWS secret access key (assignment)"),
     ("github_pat_classic", r"\bghp_[A-Za-z0-9]{36,}\b",
      "GitHub personal access token (classic)"),
-    ("github_pat_fine", r"\bgithub_pat_[A-Za-z0-9_]{20,}\b",
+    ("github_pat_fine", r"\bgithub_pat_[A-Za-z0-9_]{59,}\b",
      "GitHub fine-grained PAT"),
     ("github_oauth", r"\bgho_[A-Za-z0-9]{36,}\b",
      "GitHub OAuth token"),

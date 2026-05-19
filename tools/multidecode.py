@@ -14,6 +14,7 @@ import argparse
 import base64
 import binascii
 import codecs
+import html
 import json
 import re
 import sys
@@ -155,6 +156,17 @@ def try_rot13(s: str) -> Optional[str]:
     return decoded
 
 
+def try_html_entities(s: str) -> Optional[str]:
+    if "&" not in s:
+        return None
+    decoded = html.unescape(s)
+    if decoded == s:
+        return None
+    if is_readable(decoded):
+        return decoded
+    return None
+
+
 def try_binary_string(s: str) -> Optional[str]:
     """Decode strings like '01001000 01101001' as ASCII."""
     s_clean = re.sub(r"\s+", "", s.strip())
@@ -175,6 +187,7 @@ DECODERS = (
     ("Base32", try_base32),
     ("Hex", try_hex),
     ("URL", try_url),
+    ("HTML Entities", try_html_entities),
     ("Binary (8-bit)", try_binary_string),
     ("ROT13", try_rot13),
 )

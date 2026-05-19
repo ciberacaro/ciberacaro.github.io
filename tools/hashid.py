@@ -66,6 +66,12 @@ class HashCandidate:
 # Order matters — more specific patterns first so they're tried first.
 SIGNATURES = [
     # Modern algorithms with distinctive prefixes
+    (r"^pbkdf2_sha(?:256|512)\$\d+\$[^$]+\$[A-Za-z0-9+/=]+$", "PBKDF2 (Django)", HIGH, "10000",
+     "Django's default password hasher (PBKDF2-HMAC-SHA256/512). Format: pbkdf2_sha256$<iters>$<salt>$<hash>.",
+     "Hasher padrão do Django (PBKDF2-HMAC-SHA256/512). Formato: pbkdf2_sha256$<iters>$<salt>$<hash>."),
+    (r"^\$pbkdf2-sha(?:256|512)\$[^$]+\$[^$]+\$[A-Za-z0-9+/.]+$", "PBKDF2 (PHC format)", HIGH, "10000",
+     "PBKDF2 in PHC string format, used by Passlib and others.",
+     "PBKDF2 no formato PHC string, usado por Passlib e outros."),
     (r"^\$argon2(?:i|d|id)\$.+\$.+\$.+$", "Argon2", HIGH, "—",
      "Modern memory-hard KDF, widely considered the gold standard.",
      "KDF moderno, memory-hard — atualmente considerado o estado da arte."),
