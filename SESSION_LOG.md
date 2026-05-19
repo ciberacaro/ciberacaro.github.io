@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 — 5 active-testing tools added; tool count 27→32).
+Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements across all 22 tools; tool count unchanged at 32).
 
 ---
 
@@ -18,10 +18,17 @@ Last updated: 2026-05-19 (Session 4 — 5 active-testing tools added; tool count
 
 **Goal at the start:** Evaluate what tools to add next (user-prompted research). Implement the highest-ROI active-testing tool.
 
-**What was done:**
+**What was done (part 1 — new tools):**
 - Researched OWASP Testing Guide, HackTricks, PayloadsAllTheThings, and PortSwigger Web Security Academy to identify gaps in the toolchain. Presented 5 suggestions: `open_redirect`, `param_miner`, `crlf_inject`, `ssrf_probe`, `http_smuggling_probe`.
 - Added 5 active vulnerability testing tools (tools #28–32): `open_redirect.py` (8 payloads × 28 params, _StopRedirect handler), `param_miner.py` (278-name wordlist, baseline delta + reflection), `crlf_inject.py` (http.client raw path injection, canary-header confirmed, no false-positive Set-Cookie), `ssrf_probe.py` (22 internal payloads, timing side-channel), `http_smuggling_probe.py` (CL.TE / TE.CL raw socket timing probes). All bugs found in initial draft were corrected before commit (double-encoding in crlf_inject, operator precedence in ssrf_probe, false-positive heuristics in http_smuggling_probe, duplicates in param_miner wordlist).
 - Updated README, HOWTO.txt (entries 1.9–1.13 + TOC + category header), SESSION_LOG, CLAUDE.md per the durable four-file rule.
+
+**What was done (part 2 — 25 improvements across existing 22 tools):**
+- Code-reviewed all 32 tools, identified 5 bugs + 6 high-priority + 8 medium + 6 minor improvements.
+- **Bugs fixed:** `check_headers.py` — added X-XSS-Protection check (WEAK if enabled, INFO if disabled); `header_diff.py` — removed deprecated Feature-Policy from TRACKED_HEADERS; `log_parser.py`, `email_forensics.py`, `file_hash.py` — removed spurious `USER_AGENT` from non-networked tools; `cve_lookup.py` — retry with exponential backoff for 429/503; `secrets_scan.py` — fixed github_pat_fine regex length (20→59) to eliminate false positives.
+- **High-priority features:** `dns_records.py` — multi-selector DKIM lookup (8 selectors); `new_writeup.py` — CTF and Bug Bounty templates (`--type ctf|bugbounty`); `param_miner.py` — POST mode (`--method post --content-type form|json`) and `--wordlist`; `recon.py` — tech_fingerprint integration + subdomain_takeover scan + HTTPS→HTTP fallback; `tech_fingerprint.py` — Astro, Flask (Werkzeug), FastAPI (uvicorn), Django REST Framework signatures.
+- **Medium features:** `wayback_check.py` — dynamic content filter (CSRF tokens, nonces, timestamps, hex strings), 500 KB body cap, `--max-diff N`; `crlf_inject.py` — `--max-params N` (default 3) configurable; `jwt_inspect.py` — empty-string HMAC test for HS256/384/512, null-byte check in kid; `cors_check.py` — POST method added to probe loop; `ssrf_probe.py` — 7 more payloads (0.0.0.0, hex IP, decimal IP, file://, dict://, gopher://); `http_smuggling_probe.py` — TE.TE obfuscation probe added (3 probes total); `cookie_check.py` — Partitioned (CHIPS) attribute check; `multidecode.py` — HTML entities decoder via `html.unescape()`; `hashid.py` — PBKDF2 Django and PHC format signatures; `robots_check.py` — nested sitemapindex following (depth ≤2, max 5 per level).
+- All 22 modified files passed Python AST syntax check before commit. README, HOWTO.txt, SESSION_LOG, CLAUDE.md updated in same commit.
 
 ---
 

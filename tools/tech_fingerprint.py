@@ -121,9 +121,19 @@ SIGNATURES = (
     {"name": "Matomo", "category": "Analytics", "html_re": r"matomo\.js|_paq\.push"},
     # ---- Tag managers
     {"name": "Google Tag Manager", "category": "TagManager", "html_re": r"googletagmanager\.com/gtm\.js"},
+    # ---- Site builders / static generators (continued)
+    {"name": "Astro", "category": "Generator",
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Astro|data-astro-cid-|/_astro/"},
     # ---- Frameworks (back end, harder to pin)
     {"name": "Laravel", "category": "Framework", "cookie_re": r"^laravel_session$|^XSRF-TOKEN$"},
+    {"name": "Flask", "category": "Framework",
+     "header_name": "server", "header_re": r"(?i)Werkzeug",
+     "cookie_re": r"^session$"},
+    {"name": "FastAPI", "category": "Framework",
+     "header_name": "server", "header_re": r"(?i)uvicorn"},
     {"name": "Django", "category": "Framework", "cookie_re": r"^csrftoken$|^sessionid$"},
+    {"name": "Django REST Framework", "category": "Framework",
+     "html_re": r"/static/rest_framework/css/|id=\"django-rest-framework\""},
     # ---- WAFs (web application firewalls)
     {"name": "Cloudflare WAF", "category": "WAF",
      "header_re": r"(?i)^cf-ray|^server:.*cloudflare"},

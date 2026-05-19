@@ -55,7 +55,7 @@ LABELS = {
         "no_records": "No records of this type",
         "email_section": "Email authentication",
         "spf": "SPF",
-        "dkim": "DKIM (default selector tested)",
+        "dkim": "DKIM",
         "dmarc": "DMARC",
         "axfr_section": "Zone transfer (AXFR) probe",
         "axfr_against": "against",
@@ -76,7 +76,7 @@ LABELS = {
         "no_records": "Sem registos deste tipo",
         "email_section": "Autenticação de email",
         "spf": "SPF",
-        "dkim": "DKIM (selector default testado)",
+        "dkim": "DKIM",
         "dmarc": "DMARC",
         "axfr_section": "Sondagem de zone transfer (AXFR)",
         "axfr_against": "contra",
@@ -129,6 +129,16 @@ ISSUE_TEXT = {
         "pt": ("Sem registos CAA — qualquer CA pode emitir certificados para este domínio",
                "Adiciona registos CAA para restringir que CAs podem emitir (ex: 'letsencrypt.org', 'digicert.com')."),
     },
+    "no_dkim": {
+        "en": ("No DKIM record found (tried selectors: default, google, k1, s1, dkim, mail, selector1, selector2)",
+               "Add DKIM signing in your mail provider. Check which selector your mail server uses "
+               "(<selector>._domainkey.<domain>). Without DKIM, recipients cannot verify that "
+               "email content hasn't been tampered with in transit."),
+        "pt": ("Sem registo DKIM (testados selectors: default, google, k1, s1, dkim, mail, selector1, selector2)",
+               "Adiciona DKIM ao teu provider de email. Verifica que selector o teu servidor de "
+               "email usa (<selector>._domainkey.<domínio>). Sem DKIM, os recetores não conseguem "
+               "verificar que o conteúdo do email não foi alterado em trânsito."),
+    },
     "axfr_open": {
         "en": ("Zone transfer (AXFR) allowed from {} — full DNS zone is publicly retrievable",
                "Restrict AXFR to specific secondary NS in your DNS server config. AXFR exposes every subdomain, IP, and record at once."),
@@ -149,6 +159,7 @@ class Records:
     soa: list[str] = field(default_factory=list)
     caa: list[str] = field(default_factory=list)
     dmarc: list[str] = field(default_factory=list)
+    dkim: dict[str, list[str]] = field(default_factory=dict)  # selector -> TXT values
     axfr_results: dict[str, str] = field(default_factory=dict)  # ns -> "refused"|"allowed:N records"|"timeout"|"skipped"
 
 
@@ -463,6 +474,14 @@ def evaluate(records: Records, domain: str, lang: str) -> list[Issue]:
                 issues.append(Issue("spf_softfail_or_neutral", t[0], t[0], t[1]))
                 break
 
+    dkim_found = any(
+        any(v.lower().startswith("v=dkim1") for v in txts)
+        for txts in records.dkim.values()
+    )
+    if not dkim_found:
+        t = ISSUE_TEXT["no_dkim"][lang]
+        issues.append(Issue("no_dkim", t[0], t[0], t[1]))
+
     if not records.dmarc:
         t = ISSUE_TEXT["no_dmarc"][lang]
         label = t[0].format(domain=domain)
@@ -515,6 +534,11 @@ def print_human(domain: str, resolver: str, records: Records, issues: list[Issue
     print(f"{L['email_section']}:")
     spf = find_spf(records.txt)
     print(f"  {L['spf']}: " + (spf[0] if spf else "—"))
+    if records.dkim:
+        for sel, txts in records.dkim.items():
+            print(f"  {L['dkim']}: [{sel}] {txts[0][:100]}")
+    else:
+        print(f"  {L['dkim']}: —")
     print(f"  {L['dmarc']}: " + (records.dmarc[0] if records.dmarc else "—"))
     print()
 
@@ -559,6 +583,8 @@ def main() -> int:
         print(f"{L['err_domain']}: {domain!r}", file=sys.stderr)
         return 2
 
+    DKIM_SELECTORS = ("default", "google", "k1", "s1", "dkim", "mail", "selector1", "selector2")
+
     records = Records()
     records.a = lookup(domain, "A", args.resolver, args.timeout)
     records.aaaa = lookup(domain, "AAAA", args.resolver, args.timeout)
@@ -569,6 +595,10 @@ def main() -> int:
     records.soa = lookup(domain, "SOA", args.resolver, args.timeout)
     records.caa = lookup(domain, "CAA", args.resolver, args.timeout)
     records.dmarc = lookup(f"_dmarc.{domain}", "TXT", args.resolver, args.timeout)
+    for sel in DKIM_SELECTORS:
+        txts = lookup(f"{sel}._domainkey.{domain}", "TXT", args.resolver, args.timeout)
+        if txts:
+            records.dkim[sel] = txts
 
     # AXFR probe against every authoritative NS — most servers refuse, which
     # is what we want. An "allowed" result is a serious recon finding.

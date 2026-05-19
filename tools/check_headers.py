@@ -128,6 +128,8 @@ NOTES = {
         "corp_missing": "No CORP; resources can be embedded by any origin",
         "corp_ok": "Resource embedding restricted to same-origin or same-site",
         "corp_weak": "CORP set but allows cross-origin embedding",
+        "xss_prot_deprecated": "Deprecated — set to 0 or remove it; '1' can create vulnerabilities in old browsers",
+        "xss_prot_disabled": "Explicitly disabled (correct for modern sites)",
     },
     "pt": {
         "hsts_missing": "HTTPS não imposto; permite downgrade attacks",
@@ -165,6 +167,8 @@ NOTES = {
         "corp_missing": "Sem CORP; recursos podem ser embebidos por qualquer origem",
         "corp_ok": "Embedding de recursos restrito a same-origin ou same-site",
         "corp_weak": "CORP definido mas permite embedding cross-origin",
+        "xss_prot_deprecated": "Descontinuado — define como 0 ou remove; '1' pode criar vulnerabilidades em browsers antigos",
+        "xss_prot_disabled": "Explicitamente desativado (correto para sites modernos)",
     },
 }
 
@@ -259,6 +263,14 @@ HEADER_RISK_INFO = {
             ),
             "fix": "Cross-Origin-Resource-Policy: same-origin  (or same-site)",
         },
+        "X-XSS-Protection": {
+            "risk": (
+                "X-XSS-Protection is deprecated and ignored by modern browsers. "
+                "Setting it to '1' can in some edge cases introduce XSS vulnerabilities "
+                "in legacy browsers. Modern protection is provided by CSP instead."
+            ),
+            "fix": "Remove the header, or set X-XSS-Protection: 0 to explicitly disable it.",
+        },
     },
     "pt": {
         "Strict-Transport-Security": {
@@ -351,6 +363,14 @@ HEADER_RISK_INFO = {
                 "<iframe>, etc. — útil para tracking, side-channels ou ataques de hotlinking."
             ),
             "fix": "Cross-Origin-Resource-Policy: same-origin  (ou same-site)",
+        },
+        "X-XSS-Protection": {
+            "risk": (
+                "X-XSS-Protection é descontinuado e ignorado por browsers modernos. "
+                "Definido como '1', pode em alguns casos introduzir vulnerabilidades XSS "
+                "em browsers antigos. A proteção moderna é fornecida pelo CSP."
+            ),
+            "fix": "Remove o header, ou define X-XSS-Protection: 0 para o desativar explicitamente.",
         },
     },
 }
@@ -537,6 +557,16 @@ def check_corp(headers: dict, lang: str) -> Finding:
     return Finding(display, WEAK, raw, N["corp_weak"])
 
 
+def check_x_xss_protection(headers: dict, lang: str) -> list[Finding]:
+    N = NOTES[lang]
+    raw = headers.get("x-xss-protection")
+    if not raw:
+        return []
+    if raw.strip() == "0":
+        return [Finding("X-XSS-Protection", INFO, raw, N["xss_prot_disabled"])]
+    return [Finding("X-XSS-Protection", WEAK, raw, N["xss_prot_deprecated"])]
+
+
 def check_info_disclosure(headers: dict, lang: str) -> list[Finding]:
     N = NOTES[lang]
     findings = []
@@ -686,6 +716,7 @@ def main() -> int:
         check_coep(headers, args.lang),
         check_corp(headers, args.lang),
     ]
+    findings.extend(check_x_xss_protection(headers, args.lang))
     findings.extend(check_info_disclosure(headers, args.lang))
 
     if args.json:

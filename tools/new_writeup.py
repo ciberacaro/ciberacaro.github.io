@@ -4,6 +4,8 @@
 Examples:
     tools/new_writeup.py "Vulnversity" --platform thm --difficulty easy
     tools/new_writeup.py "Soccer" --platform htb --tags web,enumeration
+    tools/new_writeup.py "XSS in Payment Form" --type bugbounty --platform other
+    tools/new_writeup.py "Advent of CTF 2024" --type ctf --platform other
 """
 
 from __future__ import annotations
@@ -19,6 +21,8 @@ from _lib import add_version_arg
 REPO_ROOT = Path(__file__).resolve().parent.parent
 POSTS_DIR = REPO_ROOT / "_posts"
 
+TYPES = ("box", "ctf", "bugbounty")
+
 PLATFORMS = {
     "thm": ("TryHackMe", "https://tryhackme.com/"),
     "htb": ("HackTheBox", "https://app.hackthebox.com/"),
@@ -31,7 +35,7 @@ PLATFORMS = {
 
 DIFFICULTIES = ["info", "easy", "medium", "hard", "insane"]
 
-TEMPLATE = """\
+TEMPLATE_BOX = """\
 ---
 title: "{title}"
 date: {date}
@@ -85,6 +89,106 @@ Path to root / Administrator. SUID? Misconfigured cron? Weak service? Kernel exp
 - [{platform_display}]({platform_url})
 """
 
+TEMPLATE_CTF = """\
+---
+title: "{title}"
+date: {date}
+categories: [CTF]
+tags: [{tags}]
+description: "{description}"
+---
+
+## Challenge
+
+- **Platform:** {platform_display}
+- **Category:** TBD (Web / Crypto / Pwn / Rev / Forensics / Misc)
+- **Points:** TBD
+
+Brief description of what the challenge presents.
+
+## Approach
+
+What the challenge looks like at first glance, and what directions were explored.
+
+## Solution
+
+Step-by-step walkthrough — what worked and why. Include commands and relevant output.
+
+```bash
+# example command
+```
+
+## Flag
+
+```
+flag{{...}}
+```
+
+## Lessons Learned
+
+- Key technique used.
+- Tool or trick worth remembering for next time.
+
+## References
+
+- [{platform_display}]({platform_url})
+"""
+
+TEMPLATE_BUGBOUNTY = """\
+---
+title: "{title}"
+date: {date}
+categories: [Bug Bounty]
+tags: [{tags}]
+description: "{description}"
+---
+
+## Summary
+
+- **Program:** {platform_display}
+- **Severity:** TBD (Critical / High / Medium / Low / Informational)
+- **CVSS:** TBD
+- **CWE:** TBD
+- **Status:** TBD (Accepted / Resolved / Duplicate / N/A)
+
+One-paragraph description of the vulnerability.
+
+## Steps to Reproduce
+
+1. Go to the target endpoint.
+2. Send the following request / perform the following action.
+3. Observe the unexpected behavior.
+
+## Proof of Concept
+
+```http
+GET /vulnerable-endpoint?param=payload HTTP/1.1
+Host: example.com
+```
+
+Response:
+```
+...
+```
+
+## Impact
+
+Concrete impact: what an attacker can do with this, what data is at risk.
+
+## Remediation
+
+Recommended fix with code examples where applicable.
+
+## Timeline
+
+| Date | Event |
+|------|-------|
+| {date} | Discovered |
+|        | Reported |
+|        | Triaged |
+|        | Resolved |
+"""
+
 
 def slugify(text: str) -> str:
     text = text.lower()
@@ -98,6 +202,13 @@ def main() -> int:
     )
     add_version_arg(parser, "new_writeup.py")
     parser.add_argument("name", help="Room/machine name, e.g. 'Vulnversity'")
+    parser.add_argument(
+        "--type",
+        choices=TYPES,
+        default="box",
+        dest="writeup_type",
+        help="Writeup template: box (default), ctf, bugbounty",
+    )
     parser.add_argument(
         "--platform",
         choices=list(PLATFORMS.keys()),
@@ -140,11 +251,16 @@ def main() -> int:
         return 1
 
     platform_display, platform_url = PLATFORMS[args.platform]
-    tags = [args.platform, args.difficulty]
+    tags = [args.platform, args.writeup_type]
+    if args.writeup_type == "box":
+        tags.append(args.difficulty)
     if args.tags:
         tags += [t.strip() for t in args.tags.split(",") if t.strip()]
 
-    content = TEMPLATE.format(
+    template_map = {"box": TEMPLATE_BOX, "ctf": TEMPLATE_CTF, "bugbounty": TEMPLATE_BUGBOUNTY}
+    template = template_map[args.writeup_type]
+
+    content = template.format(
         title=args.name,
         date=f"{args.date} 12:00:00 +0100",
         platform_category=platform_display,

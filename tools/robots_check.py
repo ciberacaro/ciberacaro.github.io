@@ -174,7 +174,10 @@ def collect_interesting(rules: list[UARules]) -> list[str]:
     return interesting
 
 
-def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50) -> list[str]:
+def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50, _depth: int = 0) -> list[str]:
+    """Fetch URL entries from a sitemap. Follows sitemapindex up to depth 2, max 5 nested."""
+    if _depth > 2:
+        return []
     status, body = fetch(sitemap_url, timeout=timeout)
     if status != 200 or not body:
         return []
@@ -183,14 +186,28 @@ def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50) -> 
         root = ET.fromstring(body)
     except ET.ParseError:
         return []
-    # Strip XML namespace from tag names for simpler matching.
     ns = re.match(r"\{.*\}", root.tag).group(0) if root.tag.startswith("{") else ""
-    for loc in root.iter(f"{ns}loc"):
-        if loc.text:
-            entries.append(loc.text.strip())
-            if len(entries) >= limit:
-                break
-    return entries
+    local_tag = root.tag[len(ns):]
+
+    if local_tag == "sitemapindex":
+        # Follow nested sitemaps, cap at 5 per level to avoid runaway fetches.
+        nested_count = 0
+        for sitemap_elem in root.iter(f"{ns}sitemap"):
+            loc = sitemap_elem.find(f"{ns}loc")
+            if loc is not None and loc.text:
+                entries.extend(
+                    fetch_sitemap_entries(loc.text.strip(), timeout, limit - len(entries), _depth + 1)
+                )
+                nested_count += 1
+                if nested_count >= 5 or len(entries) >= limit:
+                    break
+    else:
+        for loc in root.iter(f"{ns}loc"):
+            if loc.text:
+                entries.append(loc.text.strip())
+                if len(entries) >= limit:
+                    break
+    return entries[:limit]
 
 
 def print_human(

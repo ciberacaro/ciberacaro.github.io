@@ -5,6 +5,8 @@ Probes a URL with a wordlist of common parameter names, comparing each
 response (status, body length, reflection) against a baseline to identify
 parameters the application responds to differently.
 
+Supports GET (default), POST form-urlencoded, and POST JSON modes.
+
 Exit codes:
   0  No parameters detected beyond baseline
   1  One or more hidden parameters found
@@ -16,6 +18,8 @@ Examples:
     tools/param_miner.py https://api.example.com/users --lang pt
     tools/param_miner.py https://api.example.com/users --json
     tools/param_miner.py https://api.example.com/users --threshold 5
+    tools/param_miner.py https://api.example.com/users --method post --content-type json
+    tools/param_miner.py https://api.example.com/users --wordlist my_params.txt
 """
 
 from __future__ import annotations
@@ -187,9 +191,19 @@ class Baseline:
     length: int
 
 
-def _fetch(url: str, timeout: float, user_agent: str) -> tuple[Optional[int], Optional[int], Optional[str]]:
-    """Fetch a URL and return (status, body_length, body). Returns (None, None, None) on error."""
-    req = urllib.request.Request(url, headers={"User-Agent": user_agent})
+def _fetch(
+    url: str,
+    timeout: float,
+    user_agent: str,
+    method: str = "GET",
+    data: Optional[bytes] = None,
+    content_type: Optional[str] = None,
+) -> tuple[Optional[int], Optional[int], Optional[str]]:
+    """Fetch URL and return (status, body_length, body). Returns (None, None, None) on error."""
+    headers = {"User-Agent": user_agent}
+    if content_type:
+        headers["Content-Type"] = content_type
+    req = urllib.request.Request(url, headers=headers, data=data, method=method)
     ctx = build_ssl_context()
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
@@ -202,7 +216,7 @@ def _fetch(url: str, timeout: float, user_agent: str) -> tuple[Optional[int], Op
         return None, None, None
 
 
-def _build_test_url(base_url: str, param: str) -> str:
+def _build_get_url(base_url: str, param: str) -> str:
     """Append a test parameter with a canary value."""
     parsed = urllib.parse.urlparse(base_url)
     qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
@@ -212,6 +226,15 @@ def _build_test_url(base_url: str, param: str) -> str:
     )
 
 
+def _build_post_form(param: str) -> bytes:
+    return urllib.parse.urlencode({param: f"canary{hash(param) % 10000}"}).encode()
+
+
+def _build_post_json(param: str) -> bytes:
+    import json as _json
+    return _json.dumps({param: f"canary{hash(param) % 10000}"}).encode()
+
+
 def _probe(
     base_url: str,
     param: str,
@@ -219,24 +242,49 @@ def _probe(
     timeout: float,
     user_agent: str,
     threshold: int,
+    method: str,
+    post_type: str,
 ) -> Optional[Finding]:
     """Probe a parameter and return a Finding if it differs from baseline."""
-    test_url = _build_test_url(base_url, param)
-    status, length, body = _fetch(test_url, timeout, user_agent)
+    canary = f"canary{hash(param) % 10000}"
+    if method == "GET":
+        test_url = _build_get_url(base_url, param)
+        status, length, body = _fetch(test_url, timeout, user_agent, method="GET")
+    elif post_type == "json":
+        status, length, body = _fetch(
+            base_url, timeout, user_agent,
+            method="POST", data=_build_post_json(param),
+            content_type="application/json",
+        )
+    else:
+        status, length, body = _fetch(
+            base_url, timeout, user_agent,
+            method="POST", data=_build_post_form(param),
+            content_type="application/x-www-form-urlencoded",
+        )
+
     if status is None:
         return None
 
-    # Check for differences: status change, or length delta >= threshold
     status_changed = status != baseline.status
     length_delta = abs(length - baseline.length)
     length_different = length_delta >= threshold
-
-    # Check if the parameter name or value appears reflected
-    reflected = (param in (body or "")) or (f"canary{hash(param) % 10000}" in (body or ""))
+    reflected = (param in (body or "")) or (canary in (body or ""))
 
     if status_changed or length_different or reflected:
         return Finding(param=param, status=status, length=length, reflected=reflected)
     return None
+
+
+def load_wordlist(path: str) -> List[str]:
+    """Load parameter names from a file (one per line, strip comments)."""
+    names: List[str] = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            name = line.split("#")[0].strip()
+            if name:
+                names.append(name)
+    return list(dict.fromkeys(names))
 
 
 def run(
@@ -245,19 +293,31 @@ def run(
     user_agent: str,
     threshold: int,
     threads: int,
+    method: str,
+    post_type: str,
+    param_names: List[str],
 ) -> tuple[List[Finding], Baseline]:
-    # Get baseline
-    status, length, _ = _fetch(url, timeout, user_agent)
+    baseline_data: Optional[bytes] = None
+    baseline_ct: Optional[str] = None
+    if method == "POST":
+        if post_type == "json":
+            baseline_data = b"{}"
+            baseline_ct = "application/json"
+        else:
+            baseline_data = b""
+            baseline_ct = "application/x-www-form-urlencoded"
+    status, length, _ = _fetch(url, timeout, user_agent, method=method,
+                                data=baseline_data, content_type=baseline_ct)
     if status is None:
         return [], Baseline(0, 0)
     baseline = Baseline(status, length)
 
-    # Fuzz parameters
     findings: List[Finding] = []
     with ThreadPoolExecutor(max_workers=threads) as ex:
         futures = {
-            ex.submit(_probe, url, param, baseline, timeout, user_agent, threshold): param
-            for param in PARAM_NAMES
+            ex.submit(_probe, url, param, baseline, timeout, user_agent,
+                      threshold, method, post_type): param
+            for param in param_names
         }
         for future in as_completed(futures):
             f = future.result()
@@ -267,11 +327,12 @@ def run(
     return findings, baseline
 
 
-def print_human(url: str, findings: List[Finding], baseline: Baseline, all_params: int, lang: str) -> None:
+def print_human(url: str, findings: List[Finding], baseline: Baseline, all_params: int,
+                lang: str, method: str = "GET") -> None:
     L = LABELS[lang]
     IT = ISSUE_TEXT[lang]
 
-    print(f"\n{L['target']}: {url}")
+    print(f"\n{L['target']}: {url}  [{method}]")
     print(f"{L['params_tested']}: {all_params}")
     print(f"{L['baseline_status']}: {baseline.status}  |  {L['baseline_length']}: {baseline.length} bytes")
     print()
@@ -325,29 +386,62 @@ def main() -> int:
         metavar="N",
         help="Concurrent probes. Default: 10.",
     )
+    parser.add_argument(
+        "--method",
+        choices=("get", "post", "GET", "POST"),
+        default="GET",
+        help="HTTP method: GET (default) or POST.",
+    )
+    parser.add_argument(
+        "--content-type",
+        choices=("form", "json"),
+        default="form",
+        dest="post_type",
+        help="POST body encoding: form (default) or json.",
+    )
+    parser.add_argument(
+        "--wordlist",
+        metavar="FILE",
+        help="Custom wordlist file (one parameter name per line). Replaces the built-in list.",
+    )
     args = parser.parse_args()
 
     L = LABELS[args.lang]
     USER_AGENT = args.user_agent
     args.url = stdin_or_arg(args.url)
+    method = args.method.upper()
 
     if not re.match(r"^https?://", args.url):
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)
         return 2
 
-    findings, baseline = run(args.url, args.timeout, USER_AGENT, args.threshold, args.threads)
+    if args.wordlist:
+        try:
+            param_names = load_wordlist(args.wordlist)
+        except OSError as e:
+            print(f"error: cannot read wordlist {args.wordlist!r}: {e}", file=sys.stderr)
+            return 2
+    else:
+        param_names = PARAM_NAMES
+
+    findings, baseline = run(
+        args.url, args.timeout, USER_AGENT, args.threshold, args.threads,
+        method=method, post_type=args.post_type, param_names=param_names,
+    )
 
     if args.as_json:
         print(json.dumps({
             "url": args.url,
             "lang": args.lang,
+            "method": method,
+            "post_type": args.post_type if method == "POST" else None,
             "baseline": asdict(baseline),
-            "params_tested": len(PARAM_NAMES),
+            "params_tested": len(param_names),
             "threshold_bytes": args.threshold,
             "findings": [asdict(f) for f in findings],
         }, indent=2, ensure_ascii=False))
     else:
-        print_human(args.url, findings, baseline, len(PARAM_NAMES), args.lang)
+        print_human(args.url, findings, baseline, len(param_names), args.lang, method=method)
 
     return 1 if findings else 0
 

@@ -42,7 +42,6 @@ TRACKED_HEADERS = (
     "x-content-type-options",
     "referrer-policy",
     "permissions-policy",
-    "feature-policy",
     "server",
     "x-powered-by",
     "x-aspnet-version",

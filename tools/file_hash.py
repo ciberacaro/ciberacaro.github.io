@@ -20,9 +20,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
-from _lib import make_user_agent, add_version_arg, stdin_or_arg
-
-USER_AGENT = make_user_agent("file_hash.py")
+from _lib import add_version_arg, stdin_or_arg
 
 LANGS = ("en", "pt")
 CHUNK_SIZE = 65536

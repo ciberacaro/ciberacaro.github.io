@@ -102,10 +102,10 @@ The portfolio's purpose is to support Luís's career transition into cybersecuri
   - `email_forensics.py` — `.eml` header analysis for phishing investigation (SPF/DKIM/DMARC, Received chain, 13-brand impersonation detection).
   - `file_hash.py` — forensic chain-of-custody hashing (MD5/SHA/SHA-3/BLAKE2, GNU-compatible manifests, verify mode).
   - `open_redirect.py` — probe for unvalidated redirect vulnerabilities (8 payloads × existing params + 24 common redirect param names; inspects Location header without following).
-  - `param_miner.py` — discover hidden query parameters (278-name wordlist, baseline delta + reflection detection, threaded).
-  - `crlf_inject.py` — HTTP response splitting / CRLF injection (http.client raw, canary-header confirmed, 5 payload variants).
-  - `ssrf_probe.py` — SSRF probe (22 internal payloads: localhost ports, AWS IMDSv1, GCP/Azure/DO metadata; timing side-channel).
-  - `http_smuggling_probe.py` — HTTP/1.1 request smuggling CL.TE / TE.CL detection (raw sockets, timing side-channel vs baseline).
+  - `param_miner.py` — discover hidden query parameters (278-name wordlist, baseline delta + reflection, threaded; GET + POST form/json modes, `--wordlist`).
+  - `crlf_inject.py` — HTTP response splitting / CRLF injection (http.client raw, canary-header confirmed, 5 payload variants, `--max-params N`).
+  - `ssrf_probe.py` — SSRF probe (29 internal payloads: localhost ports, AWS IMDSv1, GCP/Azure/DO metadata, 0.0.0.0, hex/decimal IP, file://, dict://, gopher://; timing side-channel).
+  - `http_smuggling_probe.py` — HTTP/1.1 request smuggling CL.TE / TE.CL / TE.TE-obfuscation detection (raw sockets, timing side-channel vs baseline).
   - See `tools/README.md` for the quick reference per tool, or `tools/HOWTO.txt` for the bilingual long-form tutorial (purpose / examples with expected output / flags / exit codes / tips per tool, EN + PT-PT).
   - macOS Python.org SSL fallback (`/etc/ssl/cert.pem`) is implemented in every networked tool, so they all work out of the box.
 - ✅ `tools/HOWTO.txt` published — bilingual (EN + PT-PT) long-form tutorial for all tools: purpose, quick-start, 3 real scenarios with expected output, flags, exit codes, tips per tool.

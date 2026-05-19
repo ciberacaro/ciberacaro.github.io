@@ -68,6 +68,13 @@ PAYLOADS: List[tuple[str, str]] = [
     ("http://[fc00::]/metadata/v1/", "Alibaba Cloud metadata"),
     ("http://192.168.1.1", "common router IP"),
     ("http://10.0.0.1", "common internal network"),
+    ("http://0.0.0.0", "all-interfaces loopback (0.0.0.0)"),
+    ("http://0x7f000001", "localhost hex IP"),
+    ("http://2130706433", "localhost decimal IP"),
+    ("file:///etc/passwd", "file:// local file read"),
+    ("file:///etc/hosts", "file:// hosts file"),
+    ("dict://127.0.0.1:6379/", "dict:// to Redis"),
+    ("gopher://127.0.0.1:9200/", "gopher:// to Elasticsearch"),
 ]
 
 LABELS = {
@@ -194,7 +201,10 @@ def _probe(
             # Secondary signal: unusually large response from an internal address
             # (e.g. metadata endpoint returning credentials JSON).
             # Guard both conditions together to avoid false positives.
-            is_internal = any(x in payload for x in ("169.254", "127.0.0", "localhost", "[::1]"))
+            is_internal = any(x in payload for x in (
+                "169.254", "127.0.0", "localhost", "[::1]",
+                "0.0.0.0", "0x7f", "2130706433", "file://", "dict://", "gopher://",
+            ))
             if is_internal and len(body) > 500 and resp.status == 200:
                 return Finding(
                     param=param, payload=payload, payload_desc="",

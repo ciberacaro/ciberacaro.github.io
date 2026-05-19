@@ -227,6 +227,40 @@ def _probe_te_cl(host: str, port: int, use_https: bool, baseline: float) -> Opti
     return None
 
 
+def _probe_te_te_obfuscation(host: str, port: int, use_https: bool, baseline: float) -> Optional[Finding]:
+    """Probe for TE.TE desync via Transfer-Encoding header obfuscation.
+
+    Strategy:
+      - Send two Transfer-Encoding headers: one standard 'chunked', one obfuscated
+        ('xchunked'). Servers that process only the first TE header see chunked
+        and treat the request normally; those that process the last header (or
+        ignore unknown TE values) may fall back to Content-Length — and stall
+        waiting for the declared bytes that never arrive.
+    """
+    request = (
+        "POST / HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "Transfer-Encoding: xchunked\r\n"
+        "Content-Length: 6\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "0\r\n"
+        "\r\n"
+    ).encode()
+
+    _, elapsed = _timed_request(host, port, request, use_https, timeout=10.0)
+    if elapsed > max(5.0, baseline * 3):
+        return Finding(
+            technique="TE.TE (obfuscation)",
+            evidence=(
+                f"Response delayed {elapsed:.1f}s vs baseline {baseline:.1f}s. "
+                "Back-end may have processed an obfuscated Transfer-Encoding header."
+            ),
+        )
+    return None
+
+
 def run(url: str) -> Tuple[List[Finding], str, int, bool]:
     """Test URL for HTTP request smuggling."""
     parsed = urllib.parse.urlparse(url)
@@ -253,6 +287,10 @@ def run(url: str) -> Tuple[List[Finding], str, int, bool]:
     if f:
         findings.append(f)
 
+    f = _probe_te_te_obfuscation(host, port, use_https, baseline)
+    if f:
+        findings.append(f)
+
     return findings, host, port, use_https
 
 
@@ -262,7 +300,7 @@ def print_human(url: str, findings: List[Finding], host: str, port: int, lang: s
 
     print(f"\n{L['target']}: {url}")
     print(f"{L['host']}: {host}  {L['port']}: {port}")
-    print(f"{L['probes']}: 2 (CL.TE, TE.CL)")
+    print(f"{L['probes']}: 3 (CL.TE, TE.CL, TE.TE obfuscation)")
     print()
 
     if findings:
@@ -308,7 +346,7 @@ def main() -> int:
             "lang": args.lang,
             "host": host,
             "port": port,
-            "probes": ["CL.TE", "TE.CL"],
+            "probes": ["CL.TE", "TE.CL", "TE.TE (obfuscation)"],
             "findings": [asdict(f) for f in findings],
         }, indent=2, ensure_ascii=False))
     else:

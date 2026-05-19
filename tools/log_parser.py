@@ -23,9 +23,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from _lib import make_user_agent, add_version_arg, stdin_or_arg
-
-USER_AGENT = make_user_agent("log_parser.py")
+from _lib import add_version_arg, stdin_or_arg
 
 LANGS = ("en", "pt")
 

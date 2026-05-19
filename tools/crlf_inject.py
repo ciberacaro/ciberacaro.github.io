@@ -190,13 +190,14 @@ def _probe_query(
     payload_desc: str,
     timeout: float,
     user_agent: str,
+    max_params: int = 3,
 ) -> Optional[Finding]:
     """Inject CRLF into a query parameter value and check for header injection."""
     # For each existing query param, inject the payload as its value.
     # Also test with a fresh 'url' param if no query string exists.
     test_params = list(qs.keys()) if qs else ["url"]
 
-    for param in test_params[:3]:  # Limit to first 3 params to keep it fast
+    for param in test_params[:max_params]:
         injected_qs = dict(qs)
         injected_qs[param] = payload
         # Build raw query string without re-encoding the payload value
@@ -233,7 +234,7 @@ def _probe_query(
     return None
 
 
-def run(url: str, timeout: float, user_agent: str) -> Tuple[List[Finding], int]:
+def run(url: str, timeout: float, user_agent: str, max_params: int = 3) -> Tuple[List[Finding], int]:
     parsed = urllib.parse.urlparse(url)
     host = parsed.hostname or "localhost"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -254,7 +255,7 @@ def run(url: str, timeout: float, user_agent: str) -> Tuple[List[Finding], int]:
             seen_points.add("path")
 
         # Test query injection
-        f = _probe_query(host, port, base_path, qs, use_https, payload, payload_desc, timeout, user_agent)
+        f = _probe_query(host, port, base_path, qs, use_https, payload, payload_desc, timeout, user_agent, max_params)
         tests_run += 1
         if f and "query" not in seen_points:
             findings.append(f)
@@ -268,7 +269,7 @@ def print_human(url: str, findings: List[Finding], tests_run: int, lang: str) ->
     IT = ISSUE_TEXT[lang]
 
     print(f"\n{L['target']}: {url}")
-    print(f"{L['tests']}: {tests_run}  ({len(PAYLOADS)} payloads × 2 injection points)")
+    print(f"{L['tests']}: {tests_run}  ({len(PAYLOADS)} payloads × path + query params)")
     print()
 
     if findings:
@@ -306,6 +307,13 @@ def main() -> int:
         metavar="SECONDS",
         help="Per-request timeout. Default: 10.",
     )
+    parser.add_argument(
+        "--max-params",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Max query parameters to test per payload. Default: 3.",
+    )
     args = parser.parse_args()
 
     L = LABELS[args.lang]
@@ -316,7 +324,7 @@ def main() -> int:
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)
         return 2
 
-    findings, tests_run = run(args.url, args.timeout, USER_AGENT)
+    findings, tests_run = run(args.url, args.timeout, USER_AGENT, max_params=args.max_params)
 
     if args.as_json:
         print(json.dumps({

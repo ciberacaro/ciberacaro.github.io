@@ -1180,10 +1180,15 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
-    --threshold BYTES   Minimum body length delta to flag. Default: 5.
-                        Raise to 20-50 on endpoints with dynamic content.
-    --threads N         Concurrent probes. Default: 10.
-    --timeout SECS      Per-request timeout. Default: 10.
+    --threshold BYTES    Minimum body length delta to flag. Default: 5.
+                         Raise to 20-50 on endpoints with dynamic content.
+    --threads N          Concurrent probes. Default: 10.
+    --timeout SECS       Per-request timeout. Default: 10.
+    --method GET|POST    HTTP method. Default: GET.
+    --content-type form|json  POST body encoding. Default: form.
+                         (only relevant with --method POST)
+    --wordlist FILE      Custom wordlist (one parameter name per line).
+                         Replaces the built-in 278-name list.
 
 [EN] EXIT CODES
     0  No parameters detected beyond baseline
@@ -1239,11 +1244,16 @@ TABLE OF CONTENTS · ÍNDICE
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
-    --threshold BYTES   Delta mínimo de tamanho do body para sinalizar.
-                        Por omissão: 5. Eleva para 20-50 em endpoints com
-                        conteúdo dinâmico.
-    --threads N         Probes concorrentes. Por omissão: 10.
-    --timeout SEGUNDOS  Timeout por pedido. Por omissão: 10.
+    --threshold BYTES    Delta mínimo de tamanho do body para sinalizar.
+                         Por omissão: 5. Eleva para 20-50 em endpoints
+                         com conteúdo dinâmico.
+    --threads N          Probes concorrentes. Por omissão: 10.
+    --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
+    --method GET|POST    Método HTTP. Por omissão: GET.
+    --content-type form|json  Codificação do body POST. Por omissão: form.
+                         (só relevante com --method POST)
+    --wordlist FICHEIRO  Wordlist personalizada (um nome por linha).
+                         Substitui a lista de 278 nomes integrada.
 
 [PT] CÓDIGOS DE SAÍDA
     0  Nenhum parâmetro detetado além da baseline
@@ -1302,7 +1312,9 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
-    --timeout SECS   Per-request timeout. Default: 10.
+    --timeout SECS     Per-request timeout. Default: 10.
+    --max-params N     Max query parameters to test per payload. Default: 3.
+                       Increase when the URL has many params worth testing.
 
 [EN] EXIT CODES
     0  No CRLF injection detected
@@ -1354,6 +1366,9 @@ TABLE OF CONTENTS · ÍNDICE
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
     --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
+    --max-params N       Máximo de parâmetros de query a testar por
+                         payload. Por omissão: 3. Aumenta quando o URL
+                         tem muitos parâmetros relevantes.
 
 [PT] CÓDIGOS DE SAÍDA
     0  Nenhuma injeção CRLF detetada
@@ -1376,7 +1391,7 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] PURPOSE
     Probe URL parameters for Server-Side Request Forgery vulnerabilities.
-    Tests 22 internal payloads — localhost/127.0.0.1 on common ports
+    Tests 29 internal payloads — localhost/127.0.0.1 on common ports
     (MySQL 3306, PostgreSQL 5432, Redis 6379, Elasticsearch 9200), IPv6
     loopback [::1], and cloud metadata endpoints (AWS IMDSv1 at
     169.254.169.254 with IAM credentials path, GCP metadata.google.internal,
@@ -1435,7 +1450,7 @@ TABLE OF CONTENTS · ÍNDICE
 
 [PT] PROPÓSITO
     Sonda parâmetros de URL à procura de vulnerabilidades SSRF. Testa
-    22 payloads internos — localhost/127.0.0.1 em portas comuns (MySQL
+    29 payloads internos — localhost/127.0.0.1 em portas comuns (MySQL
     3306, PostgreSQL 5432, Redis 6379, Elasticsearch 9200), loopback IPv6
     [::1], e endpoints de metadata em cloud (AWS IMDSv1 em
     169.254.169.254 com caminho de credenciais IAM, metadata.google.internal
@@ -1531,7 +1546,8 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
-    (No additional flags — the tool always runs both CL.TE and TE.CL probes.)
+    (No additional flags — the tool always runs all 3 probes:
+     CL.TE, TE.CL, and TE.TE obfuscation via duplicate Transfer-Encoding.)
 
 [EN] EXIT CODES
     0  No smuggling indicators detected
@@ -1571,7 +1587,7 @@ TABLE OF CONTENTS · ÍNDICE
     Output esperado (truncado):
         Alvo: https://example.com
         Host: example.com  Porto: 443
-        Probes enviadas: 2 (CL.TE, TE.CL)
+        Probes enviadas: 3 (CL.TE, TE.CL, TE.TE obfuscation)
 
         Nenhum indicador de HTTP smuggling detetado.
 
@@ -1589,7 +1605,8 @@ TABLE OF CONTENTS · ÍNDICE
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
-    (Sem flags adicionais — a ferramenta corre sempre ambos os probes.)
+    (Sem flags adicionais — a ferramenta corre sempre os 3 probes:
+     CL.TE, TE.CL, e TE.TE com obfuscação por Transfer-Encoding duplicado.)
 
 [PT] CÓDIGOS DE SAÍDA
     0  Nenhum indicador de smuggling detetado
@@ -3744,26 +3761,24 @@ TABLE OF CONTENTS · ÍNDICE
     $ tools/new_writeup.py "Vulnversity"
 
 [EN] EXAMPLES
-    # Scenario 1 — a TryHackMe easy room
+    # Scenario 1 — a TryHackMe easy room (box template)
     $ tools/new_writeup.py "Vulnversity" --platform thm --difficulty easy
     Expected output:
         created: _posts/2026-05-18-vulnversity.md
 
-    # Scenario 2 — a HackTheBox box with extra tags
-    $ tools/new_writeup.py "Soccer" --platform htb --tags web,enumeration
+    # Scenario 2 — a CTF challenge
+    $ tools/new_writeup.py "Advent of CTF 2024" --type ctf --platform other
 
-    # Scenario 3 — a PortSwigger lab
-    $ tools/new_writeup.py "Reflected XSS into HTML context" \
-        --platform portswigger --difficulty medium \
-        --tags xss,web
-
-    # Scenario 4 — back-dating a writeup
-    $ tools/new_writeup.py "Old Box" --date 2026-04-15
+    # Scenario 3 — a bug bounty write-up
+    $ tools/new_writeup.py "XSS in Payment Form" \
+        --type bugbounty --platform other --tags xss,web
 
 [EN] FLAGS
     Beyond standard --version:
+    --type {box,ctf,bugbounty}   Template to use. Default: box.
     --platform {thm,htb,portswigger,other}   Default: thm.
     --difficulty {info,easy,medium,hard,insane}  Default: easy.
+                                 (only used for --type box)
     --tags "a,b,c"            Comma-separated extra tags.
     --date YYYY-MM-DD         Override date. Default: today.
 
@@ -3797,21 +3812,19 @@ TABLE OF CONTENTS · ÍNDICE
     Output esperado:
         created: _posts/2026-05-18-vulnversity.md
 
-    # Cenário 2 — uma box do HackTheBox com tags extra
-    $ tools/new_writeup.py "Soccer" --platform htb --tags web,enumeration
+    # Cenário 2 — um desafio CTF
+    $ tools/new_writeup.py "Advent of CTF 2024" --type ctf --platform other
 
-    # Cenário 3 — um lab do PortSwigger
-    $ tools/new_writeup.py "Reflected XSS into HTML context" \
-        --platform portswigger --difficulty medium \
-        --tags xss,web
-
-    # Cenário 4 — back-dating de um writeup
-    $ tools/new_writeup.py "Caixa Antiga" --date 2026-04-15
+    # Cenário 3 — um bug bounty
+    $ tools/new_writeup.py "XSS no formulário de pagamento" \
+        --type bugbounty --platform other --tags xss,web
 
 [PT] FLAGS
     Para além de --version standard:
+    --type {box,ctf,bugbounty}   Template a usar. Por omissão: box.
     --platform {thm,htb,portswigger,other}   Por omissão: thm.
     --difficulty {info,easy,medium,hard,insane}  Por omissão: easy.
+                                 (só usado em --type box)
     --tags "a,b,c"            Tags extra separadas por vírgula.
     --date AAAA-MM-DD         Sobrepõe a data. Por omissão: hoje.
 

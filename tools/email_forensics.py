@@ -26,9 +26,7 @@ from email.parser import BytesParser
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Optional
 
-from _lib import make_user_agent, add_version_arg, stdin_or_arg
-
-USER_AGENT = make_user_agent("email_forensics.py")
+from _lib import add_version_arg, stdin_or_arg
 
 LANGS = ("en", "pt")
 
