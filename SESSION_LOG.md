@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path_scan + subdomain_takeover + log_parser + email_forensics + file_hash).
+Last updated: 2026-05-19 (Session 4 — open_redirect.py added; tool count 27→28).
 
 ---
 
@@ -13,6 +13,17 @@ Last updated: 2026-05-18 (Session 3 — branch reconciliation + HOWTO.txt + path
 **Goal at the start:** Build a cybersecurity portfolio from scratch — Luís is transitioning into the field, targets pentesting/red team, has ~10-20 hours/week.
 
 **Final outcome:** Site live with bilingual About, 11 working CLI security tools, full local + remote tooling setup, project context portable across machines.
+
+### Session 4 — 2026-05-19
+
+**Goal at the start:** Evaluate what tools to add next (user-prompted research). Implement the highest-ROI active-testing tool.
+
+**What was done:**
+- Researched OWASP Testing Guide, HackTricks, PayloadsAllTheThings, and PortSwigger Web Security Academy to identify gaps in the toolchain. Presented 5 suggestions: `open_redirect`, `param_miner`, `crlf_inject`, `ssrf_probe`, `http_smuggling_probe`.
+- Added `open_redirect.py` (tool #28) — probes for unvalidated redirect vulnerabilities. Injects 8 payloads (https://, protocol-relative //, backslash bypass \/\/, @-trick, etc.) into all query params in the URL **plus** 24 common redirect param names (url, next, redirect, returnTo, goto, dest, callback, …). Reports any param where the server responds 3xx with a Location pointing outside the original host. Uses a `_StopRedirect` urllib handler so redirects are inspected rather than followed.
+- Updated README, HOWTO.txt (entry 1.9 + TOC), SESSION_LOG, CLAUDE.md per the durable four-file rule.
+
+---
 
 ### Session 3 — 2026-05-18 (branch reconciliation)
 
@@ -78,7 +89,7 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (27 tools in `tools/` + shared `_lib.py`)
+### Toolchain (28 tools in `tools/` + shared `_lib.py`)
 
 All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
@@ -111,6 +122,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `log_parser.py` | Log normalisation + brute-force/scanner detection (Apache/syslog/generic, streamed) |
 | `email_forensics.py` | .eml header analysis: SPF/DKIM/DMARC, Received chain, brand impersonation |
 | `file_hash.py` | Forensic file hashing (MD5/SHA, manifests, chain-of-custody) |
+| `open_redirect.py` | Open redirect probe: 8 payloads × 28 params (URL params + 24 common names) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.

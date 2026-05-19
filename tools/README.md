@@ -193,6 +193,17 @@ tools/path_scan.py https://example.com --wordlist /usr/share/wordlists/dirb/comm
 tools/path_scan.py https://example.com --codes 200,301,302 --json
 ```
 
+## `open_redirect.py`
+
+Probe a URL for open redirect vulnerabilities. Injects 8 payloads (protocol-relative `//`, backslash bypass `\/\/`, `@`-trick, etc.) into every query parameter in the URL **and** into 24 common redirect parameter names (`url`, `next`, `redirect`, `returnTo`, `goto`, `dest`, `callback`, …) not already present. Reports any parameter where the server issues a 3xx response with a `Location` header pointing outside the original host.
+
+```bash
+tools/open_redirect.py https://example.com/login?next=/dashboard
+tools/open_redirect.py https://example.com/login?next=/dashboard --lang pt
+tools/open_redirect.py https://example.com/login?next=/dashboard --json
+echo "https://example.com/login?next=/dashboard" | tools/open_redirect.py -
+```
+
 ## `subdomain_takeover.py`
 
 Detect subdomains vulnerable to takeover — where a CNAME points to a third-party service that's no longer registered (forgotten GitHub Pages site, dead Heroku app, abandoned S3 bucket). An attacker can register that orphaned service and serve content under the original domain.

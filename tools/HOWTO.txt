@@ -75,6 +75,7 @@ TABLE OF CONTENTS · ÍNDICE
      1.6 header_diff.py         Snapshot + diff headers over time
      1.7 tech_fingerprint.py    Wappalyzer-lite (server, CMS, framework)
      1.8 path_scan.py           Wordlist-based path/directory discovery
+     1.9 open_redirect.py       Open redirect vulnerability probe
 
   2. DNS & NETWORK
      2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
@@ -117,7 +118,7 @@ TABLE OF CONTENTS · ÍNDICE
 1. WEB RECONNAISSANCE
 ================================================================================
    [check_headers, cookie_check, cors_check, http_methods, robots_check,
-    header_diff, tech_fingerprint, path_scan]
+    header_diff, tech_fingerprint, path_scan, open_redirect]
 
 --------------------------------------------------------------------------------
 1.1 check_headers.py
@@ -1005,6 +1006,132 @@ TABLE OF CONTENTS · ÍNDICE
       `--extensions php,phps,bak`. Site em Java? testa `actuator/*`.
     - A lista 200,301,302,401,403 é um trade-off de recon — baixa para
       `--codes 200,301,302` se só quiseres acertos diretamente legíveis.
+
+--------------------------------------------------------------------------------
+1.9 open_redirect.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Probe a URL for open redirect vulnerabilities. Injects 8 payloads
+    (absolute https://, protocol-relative //, backslash bypass \/\/,
+    triple-slash ///, @-trick, and others) into every query parameter
+    present in the URL, and also into 24 common redirect parameter names
+    (url, next, redirect, returnTo, goto, dest, callback, etc.) not
+    already in the URL. Reports any parameter where the server responds
+    with a 3xx and a Location header pointing outside the original host.
+
+    Open redirects are one of the most frequently reported bug bounty
+    findings and are commonly chained with OAuth flows to steal
+    authorization tokens.
+
+[EN] QUICK START
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard
+
+[EN] EXAMPLES
+    # Scenario 1 — URL with an explicit redirect parameter
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard
+    Expected output (truncated):
+        Target: https://example.com/login?next=/dashboard
+        Parameters tested: 25  (Payloads per parameter: 8)
+          [Includes common redirect parameter names not in the original URL.]
+
+        Vulnerable parameters found (1):
+
+          ✗ Open redirect via 'next' with payload 'https://open-redirect-canary.example'
+               → https://open-redirect-canary.example
+             Status: 302
+             Risk: An attacker can craft a link on your domain ...
+             Fix:  Validate redirect destinations against a strict allowlist ...
+
+    # Scenario 2 — URL with no query parameters (tests common names only)
+    $ tools/open_redirect.py https://example.com/sso/callback
+
+    # Scenario 3 — JSON output for pipeline use
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard \
+        --json | jq '.findings[] | {param, payload, location}'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --timeout SECONDS   Per-request timeout. Default: 10.
+
+[EN] EXIT CODES
+    0  No open redirect detected
+    1  One or more vulnerable parameters found
+    2  Bad URL format or usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - If the target uses a non-standard redirect param name you suspect,
+      append it manually: `?myredirect=https://evil.com` and check the
+      Location header in curl -I output first, then use --json to automate.
+    - A 3xx → external Location is sufficient for a finding even if the
+      destination is unreachable — the server is following your payload.
+    - Pair with cors_check to check whether the redirect origin also has
+      loose CORS — the combination dramatically increases impact.
+    - Some sites only redirect after POST (login forms). This tool tests
+      GET only; use curl or Burp Suite for POST-based redirects.
+
+[PT] PROPÓSITO
+    Testa um URL à procura de vulnerabilidades de open redirect. Injeta 8
+    payloads (https:// absoluto, protocol-relative //, bypass por barra
+    invertida \/\/, triple-slash ///, truque @, e outros) em cada
+    parâmetro da query presente no URL, e também em 24 nomes comuns de
+    parâmetros de redirect (url, next, redirect, returnTo, goto, dest,
+    callback, etc.) não presentes no URL original. Reporta qualquer
+    parâmetro em que o servidor responda com 3xx e um cabeçalho Location
+    a apontar fora do host original.
+
+    Os open redirects são um dos findings mais frequentes em bug bounty e
+    são frequentemente encadeados com fluxos OAuth para roubo de tokens
+    de autorização.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard
+
+[PT] EXEMPLOS
+    # Cenário 1 — URL com parâmetro de redirect explícito
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard \
+        --lang pt
+    Output esperado (truncado):
+        Alvo: https://example.com/login?next=/dashboard
+        Parâmetros testados: 25  (Payloads por parâmetro: 8)
+          [Inclui nomes de parâmetros comuns não presentes no URL original.]
+
+        Parâmetros vulneráveis encontrados (1):
+
+          ✗ Open redirect via 'next' com payload
+               'https://open-redirect-canary.example'
+               → https://open-redirect-canary.example
+             Estado: 302
+             Risco: Um atacante pode criar um link no teu domínio ...
+             Correção: Valida os destinos de redirect ...
+
+    # Cenário 2 — URL sem parâmetros (testa só os nomes comuns)
+    $ tools/open_redirect.py https://example.com/sso/callback --lang pt
+
+    # Cenário 3 — JSON para pipeline
+    $ tools/open_redirect.py https://example.com/login?next=/dashboard \
+        --json | jq '.findings[] | {param, payload, location}'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhum open redirect detetado
+    1  Um ou mais parâmetros vulneráveis encontrados
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - Se suspeitas de um nome de parâmetro específico não coberto pela
+      lista, adiciona-o manualmente ao URL antes de correr a ferramenta.
+    - Um 3xx → Location externo é suficiente para um finding mesmo que o
+      destino seja inacessível — o servidor está a seguir o teu payload.
+    - Combina com cors_check: redirect origin + CORS laxo aumenta o
+      impacto dramaticamente.
+    - A ferramenta testa só GET. Para redirects baseados em POST (formulários
+      de login), usa curl ou Burp Suite.
 
 ================================================================================
 2. DNS & NETWORK
