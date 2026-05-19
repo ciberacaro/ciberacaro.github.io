@@ -3,14 +3,14 @@
 
 Detects suspicious patterns: brute-force attempts (many 4xx from same IP),
 scanners (one IP hitting many distinct paths), and hits on sensitive paths
-(.env, .git, admin panels, etc.). Reads Apache-style access logs, syslog,
-or any free-form text — runs regex extraction on every line.
+(.env, .git, admin panels, etc.). Reads Apache/Nginx access logs, syslog,
+JSON logs (CloudWatch, GCP, Docker, ECS), or any free-form text.
 
 Examples:
     tools/log_parser.py access.log
     tools/log_parser.py access.log --top 20 --bruteforce 25
     tools/log_parser.py - < /var/log/nginx/access.log
-    tools/log_parser.py access.log --lang pt --json
+    tools/log_parser.py cloudwatch.json --lang pt --json
 """
 
 from __future__ import annotations
@@ -208,6 +208,42 @@ def parse_log(stream, bruteforce_threshold: int) -> dict:
         lines_parsed += 1
         if not line:
             continue
+
+        # JSON log format (CloudWatch, GCP, Docker, ECS, etc.)
+        if line.lstrip().startswith("{"):
+            try:
+                obj = json.loads(line)
+                ip = (obj.get("client_ip") or obj.get("clientip") or obj.get("remote_addr")
+                      or obj.get("ip") or obj.get("src_ip") or obj.get("source_ip") or "")
+                path = (obj.get("request") or obj.get("path") or obj.get("uri")
+                        or obj.get("url_path") or obj.get("http.url") or "")
+                status = str(obj.get("status") or obj.get("status_code") or obj.get("http_status")
+                             or obj.get("response") or obj.get("http.response.status_code") or "")
+                ts = str(obj.get("time") or obj.get("timestamp") or obj.get("@timestamp")
+                         or obj.get("time_local") or obj.get("datetime") or "")[:30]
+                email = str(obj.get("email") or obj.get("user_email") or "")
+                if ip and (valid_ipv4(ip) or ":" in ip):
+                    ip_counter[ip] += 1
+                    if path:
+                        ip_paths[ip].add(path)
+                    if status.startswith("4"):
+                        ip_4xx[ip] += 1
+                if path:
+                    url_counter[path] += 1
+                    if RE_SENSITIVE.search(path):
+                        sensitive_hits[path] += 1
+                if status:
+                    status_counter[status] += 1
+                if ts:
+                    lines_with_ts += 1
+                    if ts_first is None:
+                        ts_first = ts
+                    ts_last = ts
+                if email and "@" in email:
+                    email_counter[email.lower()] += 1
+                continue
+            except (json.JSONDecodeError, AttributeError):
+                pass
 
         apache_match = RE_APACHE_LINE.match(line)
         if apache_match:

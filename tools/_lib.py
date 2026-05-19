@@ -28,6 +28,7 @@ import argparse
 import os
 import ssl
 import sys
+import urllib.request
 
 TOOLS_VERSION = "0.2"
 PORTFOLIO_URL = "https://ciberacaro.github.io"
@@ -100,3 +101,35 @@ def add_user_agent_arg(parser: argparse.ArgumentParser, default: str) -> None:
         metavar="STRING",
         help="Override the User-Agent header (default: the tool's own UA).",
     )
+
+
+def add_proxy_arg(parser: argparse.ArgumentParser) -> None:
+    """Register a --proxy argument for routing requests through a proxy.
+
+    Useful for intercepting traffic with Burp Suite (http://127.0.0.1:8080)
+    or routing through Tor/corporate proxies. Works with HTTP and HTTPS targets.
+    """
+    parser.add_argument(
+        "--proxy",
+        metavar="URL",
+        default=None,
+        help="Route all requests through a proxy (e.g. http://127.0.0.1:8080 for Burp Suite).",
+    )
+
+
+def build_opener(
+    ssl_ctx: ssl.SSLContext,
+    proxy_url: str | None = None,
+    extra_handlers: list | None = None,
+) -> urllib.request.OpenerDirector:
+    """Return an urllib OpenerDirector with optional proxy and custom SSL context.
+
+    Pass extra_handlers to include tool-specific handlers (e.g. redirect trackers).
+    """
+    handlers: list = []
+    if proxy_url:
+        handlers.append(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+    handlers.append(urllib.request.HTTPSHandler(context=ssl_ctx))
+    if extra_handlers:
+        handlers.extend(extra_handlers)
+    return urllib.request.build_opener(*handlers)

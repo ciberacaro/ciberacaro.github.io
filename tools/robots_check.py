@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg, build_opener, add_proxy_arg
 
 USER_AGENT = make_user_agent("robots_check.py")
 LANGS = ("en", "pt")
@@ -111,12 +111,16 @@ class UARules:
     host: Optional[str] = None
 
 
-def fetch(url: str, timeout: float = 10.0) -> tuple[int, str]:
+def fetch(url: str, timeout: float = 10.0, opener=None) -> tuple[int, str]:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    ctx = build_ssl_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.status, resp.read().decode("utf-8", errors="replace")
+        if opener is not None:
+            with opener.open(req, timeout=timeout) as resp:
+                return resp.status, resp.read().decode("utf-8", errors="replace")
+        else:
+            ctx = build_ssl_context()
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                return resp.status, resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         return e.code, ""
 
@@ -174,11 +178,11 @@ def collect_interesting(rules: list[UARules]) -> list[str]:
     return interesting
 
 
-def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50, _depth: int = 0) -> list[str]:
+def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50, _depth: int = 0, opener=None) -> list[str]:
     """Fetch URL entries from a sitemap. Follows sitemapindex up to depth 2, max 5 nested."""
     if _depth > 2:
         return []
-    status, body = fetch(sitemap_url, timeout=timeout)
+    status, body = fetch(sitemap_url, timeout=timeout, opener=opener)
     if status != 200 or not body:
         return []
     entries: list[str] = []
@@ -196,7 +200,7 @@ def fetch_sitemap_entries(sitemap_url: str, timeout: float, limit: int = 50, _de
             loc = sitemap_elem.find(f"{ns}loc")
             if loc is not None and loc.text:
                 entries.extend(
-                    fetch_sitemap_entries(loc.text.strip(), timeout, limit - len(entries), _depth + 1)
+                    fetch_sitemap_entries(loc.text.strip(), timeout, limit - len(entries), _depth + 1, opener=opener)
                 )
                 nested_count += 1
                 if nested_count >= 5 or len(entries) >= limit:
@@ -275,6 +279,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Analyze /robots.txt and /sitemap.xml for a site.")
     add_version_arg(parser, "robots_check.py")
     add_user_agent_arg(parser, USER_AGENT)
+    add_proxy_arg(parser)
     parser.add_argument("url", help="Target site URL (http:// or https://). Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -288,12 +293,14 @@ def main() -> int:
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)
         return 2
 
+    opener = build_opener(build_ssl_context(), args.proxy) if args.proxy else None
+
     parsed = urllib.parse.urlparse(args.url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     robots_url = f"{base}/robots.txt"
 
     try:
-        robots_status, robots_body = fetch(robots_url, timeout=args.timeout)
+        robots_status, robots_body = fetch(robots_url, timeout=args.timeout, opener=opener)
     except urllib.error.URLError as e:
         print(f"{L['err_unreachable']} {robots_url} — {e.reason}", file=sys.stderr)
         return 3
@@ -313,12 +320,12 @@ def main() -> int:
     if not sitemaps:
         # Fall back to /sitemap.xml
         candidate = f"{base}/sitemap.xml"
-        sm_status, _ = fetch(candidate, timeout=args.timeout)
+        sm_status, _ = fetch(candidate, timeout=args.timeout, opener=opener)
         if sm_status == 200:
             sitemaps = [candidate]
 
     for s in sitemaps[:3]:  # cap sitemap fetches
-        sitemap_entries.extend(fetch_sitemap_entries(s, timeout=args.timeout, limit=50))
+        sitemap_entries.extend(fetch_sitemap_entries(s, timeout=args.timeout, limit=50, opener=opener))
 
     if args.json:
         out = {

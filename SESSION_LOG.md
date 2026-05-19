@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements across all 22 tools; tool count unchanged at 32).
+Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements + 5 further enhancements; tool count unchanged at 32).
 
 ---
 
@@ -29,6 +29,12 @@ Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements across al
 - **High-priority features:** `dns_records.py` — multi-selector DKIM lookup (8 selectors); `new_writeup.py` — CTF and Bug Bounty templates (`--type ctf|bugbounty`); `param_miner.py` — POST mode (`--method post --content-type form|json`) and `--wordlist`; `recon.py` — tech_fingerprint integration + subdomain_takeover scan + HTTPS→HTTP fallback; `tech_fingerprint.py` — Astro, Flask (Werkzeug), FastAPI (uvicorn), Django REST Framework signatures.
 - **Medium features:** `wayback_check.py` — dynamic content filter (CSRF tokens, nonces, timestamps, hex strings), 500 KB body cap, `--max-diff N`; `crlf_inject.py` — `--max-params N` (default 3) configurable; `jwt_inspect.py` — empty-string HMAC test for HS256/384/512, null-byte check in kid; `cors_check.py` — POST method added to probe loop; `ssrf_probe.py` — 7 more payloads (0.0.0.0, hex IP, decimal IP, file://, dict://, gopher://); `http_smuggling_probe.py` — TE.TE obfuscation probe added (3 probes total); `cookie_check.py` — Partitioned (CHIPS) attribute check; `multidecode.py` — HTML entities decoder via `html.unescape()`; `hashid.py` — PBKDF2 Django and PHC format signatures; `robots_check.py` — nested sitemapindex following (depth ≤2, max 5 per level).
 - All 22 modified files passed Python AST syntax check before commit. README, HOWTO.txt, SESSION_LOG, CLAUDE.md updated in same commit.
+
+**What was done (part 3 — 5 structural enhancements):**
+- `_lib.py` — `add_proxy_arg()` + `build_opener()` helpers for proxy/Burp Suite support; `check_headers.py`, `robots_check.py`, `wayback_check.py` wired up with `--proxy URL`.
+- `secrets_scan.py` — 4 AI-token patterns (OpenAI legacy `sk-...`, OpenAI project `sk-proj-...`, Anthropic `sk-ant-...`, HuggingFace `hf_...`) and `bare_credential_assign` pattern (bare `KEY=value` without quotes, entropy-gated) for keyword-proximity coverage.
+- `path_scan.py` — wildcard/soft-404 detection: probes a random 18-char path before the scan; if server returns 200, warns user and auto-filters results within 10% of baseline body size; `content_length` added to `Finding` dataclass.
+- `log_parser.py` — JSON log format support (CloudWatch, GCP, Docker/ECS): tries `json.loads()` before Apache regex; field names auto-detected from common naming conventions (`client_ip`, `request`, `status`, `@timestamp`, etc.).
 
 ---
 

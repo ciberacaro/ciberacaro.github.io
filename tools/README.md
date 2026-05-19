@@ -91,6 +91,7 @@ tools/check_headers.py https://example.com --lang pt        # European Portugues
 tools/check_headers.py https://example.com --no-color
 tools/check_headers.py https://example.com --json
 tools/check_headers.py https://slow-host.example --timeout 30
+tools/check_headers.py https://example.com --proxy http://127.0.0.1:8080  # Burp Suite
 ```
 
 ### Output
@@ -126,6 +127,7 @@ Fetch `/robots.txt` and `/sitemap.xml`. Lists rules per User-Agent, highlights p
 ```bash
 tools/robots_check.py https://example.com
 tools/robots_check.py https://example.com --lang pt --json
+tools/robots_check.py https://example.com --proxy http://127.0.0.1:8080
 ```
 
 ## `hashid.py`
@@ -187,6 +189,8 @@ tools/subfinder.py example.com --threads 20 --jitter 0.3   # tune for your resol
 Discover hidden paths and directories on a web server. Stdlib equivalent of gobuster/dirb-style scanners — concurrent HTTP probes (default 10 threads) over a built-in 75-path wordlist (admin panels, backups, `.env`, `.git/config`, `wp-config.php`, `phpmyadmin`, Spring Actuator endpoints, etc.). Flags dangerous findings (env files, exposed `.git`, backups, admin panels, private-key files) with a risk level.
 
 Supports external wordlists (`--wordlist`), extension expansion (`--extensions php,html,bak`), custom status-code filtering (`--codes`), and tunable concurrency. A 403 on a sensitive path still reports — the directory exists even if not directly readable.
+
+**Wildcard/soft-404 detection**: before scanning, the tool probes a random 18-char path. If the server returns 200, it's a wildcard responder — the tool warns you and automatically filters out results whose body size is within 10% of the baseline, suppressing most false positives.
 
 ```bash
 tools/path_scan.py https://example.com
@@ -321,9 +325,9 @@ tools/dns_records.py example.com --no-axfr           # skip zone-transfer probe
 
 ## `secrets_scan.py`
 
-Scan filesystem or git history for committed credentials. Patterns for AWS keys, Stripe/Slack/GitHub/Twilio/SendGrid tokens, Google API keys, JWT-like strings, private-key PEM blocks, DB connection URLs with passwords, and generic `api_key='...'` assignments. All matches masked in the output.
+Scan filesystem or git history for committed credentials. Patterns for AWS keys, Stripe/Slack/GitHub/Twilio/SendGrid/OpenAI/Anthropic/HuggingFace tokens, Google API keys, JWT-like strings, private-key PEM blocks, DB connection URLs with passwords, and generic `api_key='...'` / bare `ACCESS_KEY=value` assignments. All matches masked in the output.
 
-Generic credential assignments are entropy-gated (Shannon entropy ≥ 3.5 bits/char on the captured value) to suppress false positives on documentation placeholders and low-randomness strings (`"exampletoken"`, `"changeme1234"`, repeated chars).
+Generic and bare credential assignments are entropy-gated (Shannon entropy ≥ 3.5 bits/char on the captured value) to suppress false positives on documentation placeholders and low-randomness strings (`"exampletoken"`, `"changeme1234"`, repeated chars).
 
 ```bash
 tools/secrets_scan.py --path .                     # current directory
@@ -358,6 +362,7 @@ tools/wayback_check.py https://example.com
 tools/wayback_check.py https://example.com --timeline --limit 20
 tools/wayback_check.py https://example.com --diff
 tools/wayback_check.py https://example.com --diff --max-diff 50
+tools/wayback_check.py https://example.com --proxy http://127.0.0.1:8080
 ```
 
 ## `tech_fingerprint.py`
@@ -402,7 +407,7 @@ tools/cve_lookup.py CVE-2021-44228 --lang pt --json
 
 ## `log_parser.py`
 
-Parse a log file (Apache/nginx access logs, syslog, or generic text) and extract & normalise IPs, emails, domains, URLs, and timestamps with precompiled regex. Aggregates top-N counts per category, classifies IPs (private / public / loopback / link-local for both IPv4 and IPv6), flags sensitive-path hits (`.env`, `.git`, `wp-admin`, etc.), and detects suspicious patterns: brute-force (same IP with ≥N 4xx responses), scanner activity (single IP touching >50 unique paths), and BOTNET-style hits on sensitive paths. Streams line-by-line so it handles multi-GB log files without loading them into memory.
+Parse a log file and extract & normalise IPs, emails, domains, URLs, and timestamps. Supports **Apache/nginx** combined-log format, **syslog**, **JSON logs** (CloudWatch, GCP, Docker/ECS — fields `client_ip`, `request`, `status`, `timestamp`, etc. auto-detected), and generic free-form text. Aggregates top-N counts per category, classifies IPs (private / public / loopback / link-local for both IPv4 and IPv6), flags sensitive-path hits (`.env`, `.git`, `wp-admin`, etc.), and detects suspicious patterns: brute-force (same IP with ≥N 4xx responses), scanner activity (single IP touching >50 unique paths), and BOTNET-style hits on sensitive paths. Streams line-by-line so it handles multi-GB log files without loading them into memory.
 
 Inspired by curriculum unit UC01481 / UC01482 of the Portuguese CET in Cybersecurity (log normalisation and filtering).
 
@@ -411,6 +416,7 @@ tools/log_parser.py access.log
 tools/log_parser.py access.log --top 20 --bruteforce 25 --lang pt
 cat /var/log/auth.log | tools/log_parser.py -
 tools/log_parser.py access.log --json | jq '.suspicious[]'
+tools/log_parser.py cloudwatch-export.json   # JSON log format
 ```
 
 ## `email_forensics.py`

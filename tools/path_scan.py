@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import socket
+import string
 import sys
 import urllib.error
 import urllib.parse
@@ -50,6 +52,8 @@ LABELS = {
         "risk_critical": "CRITICAL",
         "risk_high": "HIGH",
         "risk_medium": "MEDIUM",
+        "wildcard_warn": "Wildcard/soft-404 detected — random path returned 200 (body ~{}B).",
+        "wildcard_note": "Filtering 200 results within 10% of baseline. Review remaining 200s carefully.",
     },
     "pt": {
         "target": "Alvo",
@@ -67,6 +71,8 @@ LABELS = {
         "risk_critical": "CRÍTICO",
         "risk_high": "ALTO",
         "risk_medium": "MÉDIO",
+        "wildcard_warn": "Wildcard/soft-404 detetado — caminho aleatório devolveu 200 (body ~{}B).",
+        "wildcard_note": "A filtrar resultados 200 dentro de 10% do tamanho base. Revê os 200 restantes com cuidado.",
     },
 }
 
@@ -173,6 +179,7 @@ class Finding:
     risk_level: Optional[str]
     redirect_url: Optional[str]
     error: Optional[str]
+    content_length: int = 0
 
 
 def classify_risk(path: str):
@@ -196,12 +203,15 @@ def probe_path(
         opener = urllib.request.build_opener(handler, NoRedirectHandler())
         resp = opener.open(req, timeout=timeout)
         status = resp.status
+        body = resp.read(4096)
         redirect_url = None
     except NoRedirectError as e:
         status = e.code
+        body = b""
         redirect_url = e.location
     except urllib.error.HTTPError as e:
         status = e.code
+        body = b""
         redirect_url = e.headers.get("Location") if status in (301, 302, 307, 308) else None
     except urllib.error.URLError as e:
         return Finding(path=path, status=0, risk_key=None, risk_level=None, redirect_url=None, error=str(e.reason))
@@ -211,7 +221,8 @@ def probe_path(
         return Finding(path=path, status=0, risk_key=None, risk_level=None, redirect_url=None, error=str(e))
 
     risk_key, risk_level = classify_risk(path)
-    return Finding(path=path, status=status, risk_key=risk_key, risk_level=risk_level, redirect_url=redirect_url, error=None)
+    return Finding(path=path, status=status, risk_key=risk_key, risk_level=risk_level,
+                   redirect_url=redirect_url, error=None, content_length=len(body))
 
 
 class NoRedirectError(Exception):
@@ -326,10 +337,19 @@ def main() -> None:
     all_paths = build_path_list(base_paths, extensions)
     ssl_ctx = build_ssl_context()
 
+    # Wildcard / soft-404 detection: probe a random nonexistent path first.
+    rand_path = "".join(random.choices(string.ascii_lowercase, k=18))
+    wc_probe = probe_path(url, rand_path, args.timeout, ssl_ctx, args.user_agent)
+    is_wildcard = wc_probe.status == 200
+    wildcard_size = wc_probe.content_length if is_wildcard else None
+
     if not args.json_out:
         ext_info = f" | {len(extensions)} {L['extensions']}" if extensions else ""
         print(f"{L['target']}: {url}")
         print(f"Wordlist: {wordlist_label} ({len(base_paths)} {L['wordlist_paths']}){ext_info} | {args.threads} {L['threads']}")
+        if is_wildcard:
+            print(f"\n! {L['wildcard_warn'].format(wildcard_size)}")
+            print(f"  {L['wildcard_note']}")
         print()
 
     results: List[Finding] = []
@@ -341,6 +361,10 @@ def main() -> None:
         for fut in as_completed(futures):
             finding = fut.result()
             if finding.error is None and finding.status in show_codes:
+                if is_wildcard and finding.status == 200 and wildcard_size is not None:
+                    # Filter out responses that match the wildcard baseline size (within 10%)
+                    if abs(finding.content_length - wildcard_size) <= max(1, wildcard_size * 0.10):
+                        continue
                 results.append(finding)
 
     results.sort(key=lambda f: all_paths.index(f.path) if f.path in all_paths else 0)
@@ -349,6 +373,8 @@ def main() -> None:
         out = {
             "url": url,
             "wordlist_size": len(base_paths),
+            "wildcard_detected": is_wildcard,
+            "wildcard_baseline_size": wildcard_size,
             "findings": [asdict(f) for f in results],
         }
         print(json.dumps(out, indent=2))

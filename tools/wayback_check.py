@@ -31,7 +31,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg, build_opener, add_proxy_arg
 
 USER_AGENT = make_user_agent("wayback_check.py")
 LANGS = ("en", "pt")
@@ -79,16 +79,19 @@ class Snapshot:
     status: Optional[str] = None
 
 
-def _fetch(url: str, timeout: float = 15.0) -> bytes:
+def _fetch(url: str, timeout: float = 15.0, opener=None) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    if opener is not None:
+        with opener.open(req, timeout=timeout) as resp:
+            return resp.read()
     ctx = build_ssl_context()
     with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
         return resp.read()
 
 
-def closest_snapshot(target_url: str, timeout: float) -> Snapshot:
+def closest_snapshot(target_url: str, timeout: float, opener=None) -> Snapshot:
     query = urllib.parse.urlencode({"url": target_url})
-    data = _fetch(f"{AVAILABILITY_URL}?{query}", timeout=timeout)
+    data = _fetch(f"{AVAILABILITY_URL}?{query}", timeout=timeout, opener=opener)
     payload = json.loads(data.decode("utf-8", errors="replace"))
     snap = payload.get("archived_snapshots", {}).get("closest")
     if not snap:
@@ -101,7 +104,7 @@ def closest_snapshot(target_url: str, timeout: float) -> Snapshot:
     )
 
 
-def cdx_timeline(target_url: str, limit: int, timeout: float) -> list[dict]:
+def cdx_timeline(target_url: str, limit: int, timeout: float, opener=None) -> list[dict]:
     """Return up to `limit` snapshot records via the CDX API.
 
     CDX fields: urlkey, timestamp, original, mimetype, statuscode,
@@ -115,7 +118,7 @@ def cdx_timeline(target_url: str, limit: int, timeout: float) -> list[dict]:
         "filter": "statuscode:200",
     }
     query = urllib.parse.urlencode(params)
-    data = _fetch(f"{CDX_URL}?{query}", timeout=timeout)
+    data = _fetch(f"{CDX_URL}?{query}", timeout=timeout, opener=opener)
     rows = json.loads(data.decode("utf-8", errors="replace"))
     if not rows:
         return []
@@ -123,12 +126,16 @@ def cdx_timeline(target_url: str, limit: int, timeout: float) -> list[dict]:
     return [dict(zip(header, row)) for row in body]
 
 
-def fetch_text(url: str, timeout: float) -> str:
+def fetch_text(url: str, timeout: float, opener=None) -> str:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        ctx = build_ssl_context()
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            body = resp.read(500_000)
+        if opener is not None:
+            with opener.open(req, timeout=timeout) as resp:
+                body = resp.read(500_000)
+        else:
+            ctx = build_ssl_context()
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                body = resp.read(500_000)
     except (urllib.error.URLError, socket.timeout):
         return ""
     return body.decode("utf-8", errors="replace")
@@ -209,6 +216,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Look up a URL on the Wayback Machine.")
     add_version_arg(parser, "wayback_check.py")
     add_user_agent_arg(parser, USER_AGENT)
+    add_proxy_arg(parser)
     parser.add_argument("url", help="Target URL. Use '-' to read from stdin.")
     parser.add_argument("--lang", choices=LANGS, default="en")
     parser.add_argument("--json", action="store_true")
@@ -227,8 +235,10 @@ def main() -> int:
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)
         return 2
 
+    opener = build_opener(build_ssl_context(), args.proxy) if args.proxy else None
+
     try:
-        snap = closest_snapshot(args.url, timeout=args.timeout)
+        snap = closest_snapshot(args.url, timeout=args.timeout, opener=opener)
     except (urllib.error.URLError, socket.timeout, json.JSONDecodeError) as e:
         print(f"{L['err_api']}: {e}", file=sys.stderr)
         return 3
@@ -236,15 +246,15 @@ def main() -> int:
     timeline: list[dict] | None = None
     if args.timeline:
         try:
-            timeline = cdx_timeline(args.url, args.limit, timeout=args.timeout)
+            timeline = cdx_timeline(args.url, args.limit, timeout=args.timeout, opener=opener)
         except (urllib.error.URLError, socket.timeout, json.JSONDecodeError) as e:
             print(f"warning: CDX query failed: {e}", file=sys.stderr)
             timeline = []
 
     diff_lines: list[str] | None = None
     if args.diff and snap.available and snap.url:
-        live = normalise_lines(fetch_text(args.url, timeout=args.timeout))
-        archived = normalise_lines(fetch_text(snap.url, timeout=args.timeout))
+        live = normalise_lines(fetch_text(args.url, timeout=args.timeout, opener=opener))
+        archived = normalise_lines(fetch_text(snap.url, timeout=args.timeout, opener=opener))
         diff_lines = [
             l for l in difflib.unified_diff(archived, live, fromfile="snapshot", tofile="live", lineterm="")
             if l and not l.startswith(("---", "+++"))

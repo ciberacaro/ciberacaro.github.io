@@ -21,7 +21,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg
+from _lib import build_ssl_context, make_user_agent, add_version_arg, add_user_agent_arg, stdin_or_arg, add_proxy_arg
 
 USER_AGENT = make_user_agent("check_headers.py")
 
@@ -408,7 +408,7 @@ class _RedirectTracker(urllib.request.HTTPRedirectHandler):
     http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
 
 
-def fetch_headers(url: str, timeout: float = 10.0):
+def fetch_headers(url: str, timeout: float = 10.0, proxy_url: str | None = None):
     """Fetch URL and return (final_url, status_code, headers, redirect_chain).
 
     Headers are keyed by lowercase name (HTTP headers are case-insensitive
@@ -418,10 +418,11 @@ def fetch_headers(url: str, timeout: float = 10.0):
     if the response came directly from the requested URL.
     """
     tracker = _RedirectTracker()
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=build_ssl_context()),
-        tracker,
-    )
+    handlers: list = []
+    if proxy_url:
+        handlers.append(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+    handlers += [urllib.request.HTTPSHandler(context=build_ssl_context()), tracker]
+    opener = urllib.request.build_opener(*handlers)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
     try:
         with opener.open(req, timeout=timeout) as resp:
@@ -670,6 +671,7 @@ def main() -> int:
     )
     add_version_arg(parser, "check_headers.py")
     add_user_agent_arg(parser, USER_AGENT)
+    add_proxy_arg(parser)
     parser.add_argument("url", help="Target URL (must include scheme: http:// or https://). Use '-' to read from stdin.")
     parser.add_argument(
         "--lang",
@@ -697,7 +699,7 @@ def main() -> int:
 
     requested_url = args.url
     try:
-        final_url, status, headers, redirect_chain = fetch_headers(args.url, timeout=args.timeout)
+        final_url, status, headers, redirect_chain = fetch_headers(args.url, timeout=args.timeout, proxy_url=args.proxy)
     except urllib.error.URLError as e:
         print(f"{L['err_unreachable']} {args.url} — {e.reason}", file=sys.stderr)
         return 3

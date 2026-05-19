@@ -166,8 +166,10 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
-    --timeout SECONDS   Default 10. Raise for slow CDNs or laggy targets.
-    --no-color          Strip ANSI codes. Useful for writeups and pipes.
+    --timeout SECONDS       Default 10. Raise for slow CDNs or laggy targets.
+    --no-color              Strip ANSI codes. Useful for writeups and pipes.
+    --proxy URL             Route traffic through a proxy
+                            (e.g. http://127.0.0.1:8080 for Burp Suite).
 
 [EN] EXIT CODES
     0  All checked headers OK
@@ -182,6 +184,8 @@ TABLE OF CONTENTS · ÍNDICE
       reminds you the headers describe the destination, not the origin.
     - Pair with header_diff to track regressions when site config or CDN
       changes silently strip a header.
+    - For Burp Suite interception: --proxy http://127.0.0.1:8080. Import
+      Burp's CA cert to avoid SSL errors on HTTPS targets.
 
 [PT] PROPÓSITO
     Audita os headers HTTP de segurança de um URL: HSTS, CSP, X-Frame-
@@ -220,8 +224,10 @@ TABLE OF CONTENTS · ÍNDICE
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
-    --timeout SEGUNDOS  Por omissão 10. Aumentar para CDNs lentas.
-    --no-color          Remove códigos ANSI. Útil para writeups e pipes.
+    --timeout SEGUNDOS      Por omissão 10. Aumentar para CDNs lentas.
+    --no-color              Remove códigos ANSI. Útil para writeups e pipes.
+    --proxy URL             Encaminha o tráfego por um proxy
+                            (ex: http://127.0.0.1:8080 para o Burp Suite).
 
 [PT] CÓDIGOS DE SAÍDA
     0  Todos os headers verificados OK
@@ -236,6 +242,8 @@ TABLE OF CONTENTS · ÍNDICE
       aviso a lembrar que os headers descrevem o destino, não a origem.
     - Combina com header_diff para apanhar regressões quando alterações
       ao site ou CDN removem silenciosamente um header.
+    - Para interceção com Burp Suite: --proxy http://127.0.0.1:8080.
+      Importar o certificado CA do Burp para evitar erros SSL em HTTPS.
 
 --------------------------------------------------------------------------------
 1.2 cookie_check.py
@@ -899,8 +907,10 @@ TABLE OF CONTENTS · ÍNDICE
     .git/, .env, etc.). A simplified Python-stdlib equivalent of
     gobuster/dirb. Concurrent HTTP probes with a 75-path built-in
     wordlist plus optional external wordlist and extension expansion.
-    Flags dangerous findings (env files, exposed .git, backups, admin
-    panels, Spring Actuator endpoints, private keys) with a risk level.
+    Flags dangerous findings with a risk level. Wildcard/soft-404
+    detection: probes a random path first; if the server returns 200,
+    warns you and filters results within 10% of the baseline body size,
+    eliminating most false positives from catch-all servers.
 
 [EN] QUICK START
     $ tools/path_scan.py https://example.com
@@ -949,6 +959,9 @@ TABLE OF CONTENTS · ÍNDICE
       `--extensions php,phps,bak`. Java site? try `actuator/*` paths.
     - The 200,301,302,401,403 list is a recon trade-off — drop 401/403
       with `--codes 200,301,302` if you only want directly-readable hits.
+    - Wildcard mode: if the warning fires, check the remaining 200 results
+      manually — they differ in body size from the baseline so they are
+      *candidates*, not confirmed findings. Always verify in the browser.
 
 [PT] PROPÓSITO
     Descobre caminhos e diretórios escondidos num servidor web testando
@@ -956,9 +969,11 @@ TABLE OF CONTENTS · ÍNDICE
     de config, .git/, .env, etc.). Equivalente simplificado em stdlib do
     gobuster/dirb. Probes HTTP concorrentes com uma wordlist interna de
     75 caminhos, mais wordlist externa opcional e expansão por extensão.
-    Sinaliza findings perigosos (ficheiros env, .git exposto, backups,
-    paineis de admin, endpoints do Spring Actuator, chaves privadas)
-    com um nível de risco.
+    Sinaliza findings perigosos com um nível de risco. Deteção de
+    wildcard/soft-404: testa um caminho aleatório primeiro; se o
+    servidor devolver 200, avisa e filtra resultados com tamanho de body
+    dentro de 10% da linha de base, eliminando a maioria dos falsos
+    positivos em servidores catch-all.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/path_scan.py https://example.com
@@ -2640,10 +2655,11 @@ TABLE OF CONTENTS · ÍNDICE
     node_modules, .venv, __pycache__, etc.). Git mode runs `git log -p`
     and inspects every diff hunk across history. Built-in patterns cover
     AWS access keys, Stripe / Slack / GitHub / Google / Twilio /
-    SendGrid tokens, private keys (RSA/EC/PEM), JWT strings, .env-style
-    assignments, and database URLs. Generic `KEY = "value"` assignments
-    are gated by a Shannon-entropy threshold (≥ 3.5 bits/char) to cut
-    false positives.
+    SendGrid / OpenAI / Anthropic / HuggingFace tokens, private keys
+    (RSA/EC/PEM), JWT strings, .env-style assignments, bare KEY=value
+    assignments, and database URLs. Generic and bare credential
+    assignments are entropy-gated (Shannon ≥ 3.5 bits/char) to cut
+    false positives from placeholders and low-randomness strings.
 
 [EN] QUICK START
     $ tools/secrets_scan.py                  # current directory
@@ -2701,11 +2717,12 @@ TABLE OF CONTENTS · ÍNDICE
     path (saltando binários e ruído comum: node_modules, .venv,
     __pycache__, etc.). O modo git corre `git log -p` e inspeciona cada
     hunk de diff ao longo do histórico. Padrões embutidos cobrem chaves
-    AWS, tokens Stripe / Slack / GitHub / Google / Twilio / SendGrid,
-    chaves privadas (RSA/EC/PEM), strings JWT, atribuições estilo .env,
-    e URLs de bases de dados. Atribuições genéricas `KEY = "valor"`
-    passam por um filtro de entropia de Shannon (≥ 3.5 bits/char) para
-    cortar falsos positivos.
+    AWS, tokens Stripe / Slack / GitHub / Google / Twilio / SendGrid /
+    OpenAI / Anthropic / HuggingFace, chaves privadas (RSA/EC/PEM),
+    strings JWT, atribuições estilo .env, atribuições bare KEY=value, e
+    URLs de bases de dados. Atribuições genéricas e bare passam por um
+    filtro de entropia de Shannon (≥ 3.5 bits/char) para cortar falsos
+    positivos de placeholders e strings de baixa aleatoriedade.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/secrets_scan.py                   # diretório atual
@@ -3117,9 +3134,12 @@ TABLE OF CONTENTS · ÍNDICE
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
-    Parse a log file (Apache/nginx access, syslog, or generic text) and
-    extract & normalise the high-value fields: IPv4/IPv6 addresses,
-    email addresses, domains, URLs/paths, status codes, and timestamps.
+    Parse a log file and extract & normalise the high-value fields:
+    IPv4/IPv6 addresses, email addresses, domains, URLs/paths, status
+    codes, and timestamps. Supports multiple log formats in a single
+    pass: Apache/nginx combined-log, syslog, JSON logs (CloudWatch, GCP
+    Logging, Docker/ECS — fields like `client_ip`, `request`, `status`,
+    `@timestamp` are auto-detected), and generic free-form text.
     Aggregates top-N counts per category, classifies IPs (private /
     public / loopback / link-local), and flags suspicious patterns:
     brute-force (≥N 4xx responses from one IP), scanner activity (one
@@ -3180,9 +3200,12 @@ TABLE OF CONTENTS · ÍNDICE
       IPs into a DNSBL check to spot known-bad ranges.
 
 [PT] PROPÓSITO
-    Analisa um ficheiro de log (access do Apache/nginx, syslog, ou
-    texto genérico) e extrai e normaliza os campos de valor: endereços
-    IPv4/IPv6, emails, domínios, URLs/paths, status codes e timestamps.
+    Analisa um ficheiro de log e extrai e normaliza os campos de valor:
+    endereços IPv4/IPv6, emails, domínios, URLs/paths, status codes e
+    timestamps. Suporta vários formatos num único passe: combined-log
+    Apache/nginx, syslog, logs JSON (CloudWatch, GCP Logging,
+    Docker/ECS — campos como `client_ip`, `request`, `status`,
+    `@timestamp` são auto-detetados), e texto genérico.
     Agrega contagens top-N por categoria, classifica IPs (privado /
     público / loopback / link-local), e sinaliza padrões suspeitos:
     brute-force (≥N respostas 4xx do mesmo IP), atividade de scanner

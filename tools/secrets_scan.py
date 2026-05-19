@@ -12,8 +12,9 @@ Two modes:
                    removal does not delete history.
 
 Patterns include AWS keys, Stripe / Slack / GitHub / Google / Twilio /
-SendGrid tokens, generic API keys, private keys, JWT-looking strings,
-.env-style assignments, and common database connection URLs.
+SendGrid / OpenAI / Anthropic / HuggingFace tokens, generic API keys,
+private keys, JWT-looking strings, .env-style assignments, and common
+database connection URLs.
 
 Examples:
     tools/secrets_scan.py
@@ -120,6 +121,17 @@ PATTERNS = (
      "npm access token"),
     ("heroku_api", r"(?i)heroku[\"'\s:=]{1,5}\"?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\"?",
      "Heroku API key (assignment)"),
+    ("openai_key", r"\bsk-[A-Za-z0-9]{48}\b",
+     "OpenAI API key (legacy format)"),
+    ("openai_proj_key", r"\bsk-proj-[A-Za-z0-9_\-]{80,}\b",
+     "OpenAI project API key"),
+    ("anthropic_key", r"\bsk-ant-[A-Za-z0-9_\-]{90,}\b",
+     "Anthropic API key"),
+    ("huggingface_token", r"\bhf_[A-Za-z0-9]{34}\b",
+     "HuggingFace API token"),
+    ("bare_credential_assign",
+     r"(?i)(?:^|[\s;,{\[])(?:api[_\-]?key|secret[_\-]?key|auth[_\-]?(?:key|token)|access[_\-]?(?:key|token))\s*[=:]\s*([A-Za-z0-9+/=_\-]{20,})(?=\s|$|[,;\"'\]}])",
+     "Bare credential assignment (no quotes, entropy-gated)"),
     ("postgres_url", r"postgres(?:ql)?://[^\s\"']*:[^@\s\"']+@[^\s\"']+",
      "Postgres connection string with password"),
     ("mysql_url", r"mysql://[^\s\"']*:[^@\s\"']+@[^\s\"']+",
@@ -145,7 +157,7 @@ MAX_FILE_BYTES = 1_000_000  # 1 MB — anything larger almost certainly isn't so
 # Patterns where we apply a Shannon-entropy gate to the captured value before
 # reporting a hit. Reduces false positives on patterns that match anything
 # that *looks* like a token (e.g. generic api_key='...' assignments).
-ENTROPY_GATED_PATTERNS = {"generic_secret_assign"}
+ENTROPY_GATED_PATTERNS = {"generic_secret_assign", "bare_credential_assign"}
 ENTROPY_MIN_BITS_PER_CHAR = 3.5  # ~empirical floor between "real secret" and "example string"
 
 
