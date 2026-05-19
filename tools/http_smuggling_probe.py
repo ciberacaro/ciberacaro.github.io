@@ -146,60 +146,84 @@ def _send_raw_request(
         return None
 
 
-def _probe_cl_te(host: str, port: int, use_https: bool) -> Optional[Finding]:
-    """Probe for Content-Length / Transfer-Encoding (CL.TE) desync."""
-    # CL.TE: front-end respects Content-Length, back-end respects Transfer-Encoding.
-    # We send a request with both: the body contains a smuggled request.
+def _timed_request(host: str, port: int, request_bytes: bytes, use_https: bool,
+                   timeout: float) -> Tuple[Optional[bytes], float]:
+    """Send request and return (response_bytes, elapsed_seconds)."""
+    start = time.time()
+    data = _send_raw_request(host, port, request_bytes, use_https, timeout)
+    return data, time.time() - start
+
+
+def _probe_cl_te(host: str, port: int, use_https: bool, baseline: float) -> Optional[Finding]:
+    """Probe for CL.TE desync using a timing side-channel.
+
+    Strategy (James Kettle / PortSwigger):
+      - Send a request whose body is complete under Content-Length but has an
+        unterminated chunked body (no `0\\r\\n\\r\\n` terminator).
+      - If the back-end uses Transfer-Encoding, it waits for the chunk
+        terminator → detectable timeout.
+      - If the back-end uses Content-Length, it reads the body and responds
+        normally → fast response.
+    """
+    # Body: CL says 3 bytes (`3\r\n`), TE sees an unterminated chunk.
     request = (
-        f"POST / HTTP/1.1\r\n"
+        "POST / HTTP/1.1\r\n"
         f"Host: {host}\r\n"
-        f"Content-Length: 6\r\n"
-        f"Transfer-Encoding: chunked\r\n"
-        f"Connection: close\r\n"
-        f"\r\n"
-        f"0\r\n"
-        f"\r\n"
-        f"G"  # Extra byte that becomes part of the next request
-    )
-    response = _send_raw_request(host, port, request.encode(), use_https)
-    if response:
-        response_str = response.decode("utf-8", errors="replace")
-        # CL.TE vulnerability: back-end reads the chunked encoding and sees
-        # the extra 'G' as the start of the next request. If we see an error
-        # about an invalid request starting with 'G', it's evidence.
-        if ("400" in response_str or "Invalid" in response_str or "Malformed" in response_str):
-            return Finding(
-                technique="CL.TE (front-end uses Content-Length, back-end uses Transfer-Encoding)",
-                evidence="Back-end attempted to parse smuggled data (error response).",
-            )
+        "Content-Length: 3\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "3\r\n"  # chunk size — back-end using TE waits for 3-byte chunk + terminator
+        "abc"    # 3 bytes of chunk data, no trailing \r\n0\r\n\r\n
+    ).encode()
+
+    _, elapsed = _timed_request(host, port, request, use_https, timeout=10.0)
+    # If the response took significantly longer than baseline, the back-end stalled
+    # waiting for a chunk terminator that never arrived → CL.TE indicator.
+    if elapsed > max(5.0, baseline * 3):
+        return Finding(
+            technique="CL.TE",
+            evidence=(
+                f"Response delayed {elapsed:.1f}s vs baseline {baseline:.1f}s. "
+                "Back-end likely stalled waiting for chunked terminator."
+            ),
+        )
     return None
 
 
-def _probe_te_cl(host: str, port: int, use_https: bool) -> Optional[Finding]:
-    """Probe for Transfer-Encoding / Content-Length (TE.CL) desync."""
-    # TE.CL: front-end respects Transfer-Encoding, back-end respects Content-Length.
-    padding = "X" * 50
+def _probe_te_cl(host: str, port: int, use_https: bool, baseline: float) -> Optional[Finding]:
+    """Probe for TE.CL desync using a timing side-channel.
+
+    Strategy:
+      - Send a request that is complete under Transfer-Encoding (chunked body
+        with `0\\r\\n\\r\\n` terminator) but Content-Length declares more bytes
+        than the body actually contains.
+      - If the back-end uses Content-Length, it waits for the remaining bytes
+        → detectable timeout.
+      - If the back-end uses Transfer-Encoding, it reads the body and responds
+        normally → fast response.
+    """
+    # Complete chunked body (0-byte chunk + terminator), but CL claims 6 bytes.
     request = (
-        f"POST / HTTP/1.1\r\n"
+        "POST / HTTP/1.1\r\n"
         f"Host: {host}\r\n"
-        f"Transfer-Encoding: chunked\r\n"
-        f"Content-Length: 100\r\n"
-        f"Connection: close\r\n"
-        f"\r\n"
-        f"0\r\n"
-        f"\r\n"
-        f"{padding}"
-    )
-    response = _send_raw_request(host, port, request.encode(), use_https)
-    if response:
-        response_str = response.decode("utf-8", errors="replace")
-        # TE.CL: front-end finishes reading at the chunked terminator (0\r\n\r\n),
-        # but back-end reads Content-Length: 100 bytes. The extra data hangs or causes errors.
-        if ("timeout" in response_str.lower() or response_str == "" or "408" in response_str):
-            return Finding(
-                technique="TE.CL (front-end uses Transfer-Encoding, back-end uses Content-Length)",
-                evidence="Request caused desynchronization (timeout or incomplete response).",
-            )
+        "Transfer-Encoding: chunked\r\n"
+        "Content-Length: 6\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "0\r\n"  # valid chunked terminator (empty body)
+        "\r\n"   # end of chunked encoding — only 4 bytes, but CL says 6
+    ).encode()
+
+    _, elapsed = _timed_request(host, port, request, use_https, timeout=10.0)
+    if elapsed > max(5.0, baseline * 3):
+        return Finding(
+            technique="TE.CL",
+            evidence=(
+                f"Response delayed {elapsed:.1f}s vs baseline {baseline:.1f}s. "
+                "Back-end likely stalled waiting for Content-Length bytes."
+            ),
+        )
     return None
 
 
@@ -210,13 +234,22 @@ def run(url: str) -> Tuple[List[Finding], str, int, bool]:
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     use_https = parsed.scheme == "https"
 
+    # Measure baseline response time with a normal GET request.
+    baseline_req = (
+        "GET / HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode()
+    _, baseline = _timed_request(host, port, baseline_req, use_https, timeout=15.0)
+
     findings: List[Finding] = []
 
-    f = _probe_cl_te(host, port, use_https)
+    f = _probe_cl_te(host, port, use_https, baseline)
     if f:
         findings.append(f)
 
-    f = _probe_te_cl(host, port, use_https)
+    f = _probe_te_cl(host, port, use_https, baseline)
     if f:
         findings.append(f)
 

@@ -45,7 +45,8 @@ USER_AGENT = make_user_agent(TOOL_NAME)
 LANGS = ("en", "pt")
 
 # Common parameter names across web frameworks and platforms.
-PARAM_NAMES: List[str] = [
+# Deduplicated (insertion order preserved via dict.fromkeys).
+_RAW_PARAM_NAMES: List[str] = [
     "debug", "test", "admin", "id", "callback", "next", "return",
     "redirect", "url", "uri", "path", "goto", "continue", "back",
     "ref", "referrer", "referer", "target", "to", "from", "src",
@@ -56,7 +57,7 @@ PARAM_NAMES: List[str] = [
     "jsessionid", "phpsessid", "aspsessionid", "cfid", "cftoken",
     "format", "output", "type", "extension", "lang", "language",
     "locale", "timezone", "region", "country", "charset", "encoding",
-    "callback", "jsonp", "json", "xml", "csv", "html", "txt",
+    "jsonp", "json", "xml", "csv", "html", "txt",
     "download", "export", "import", "upload", "file", "filename",
     "action", "method", "_method", "verb", "cmd", "command",
     "exec", "execute", "run", "eval", "expression", "code",
@@ -65,17 +66,17 @@ PARAM_NAMES: List[str] = [
     "per_page", "per-page", "count", "max", "min", "range",
     "start", "end", "begin", "finish", "from_date", "to_date",
     "date", "time", "timestamp", "version", "v", "api",
-    "debug", "verbose", "trace", "log", "level",
+    "verbose", "trace", "log", "level",
     "cache", "nocache", "bypass", "flush", "clear",
     "force", "override", "allow", "deny", "permit", "block",
-    "admin", "moderator", "role", "permission", "access",
+    "moderator", "role", "permission", "access",
     "public", "private", "draft", "publish", "unpublish",
     "active", "inactive", "enable", "disable", "delete",
     "restore", "undelete", "archive", "unarchive", "backup",
     "restore_from", "restore_to", "migrate", "sync",
-    "callback", "_callback", "success", "error", "fail",
+    "_callback", "success", "error", "fail",
     "message", "msg", "alert", "notice", "warning",
-    "include", "exclude", "omit", "skip", "only",
+    "include", "exclude", "omit", "only",
     "fields", "columns", "attributes", "props", "properties",
     "expand", "collapse", "full", "summary", "minimal",
     "width", "height", "size", "scale", "zoom",
@@ -83,13 +84,13 @@ PARAM_NAMES: List[str] = [
     "sort_by", "sort-by", "orderby", "order-by",
     "filter_by", "filter-by", "search_by", "search-by",
     "group_by", "group-by", "group", "grouping",
-    "category", "subcategory", "type", "subtype",
+    "category", "subcategory", "subtype",
     "tag", "tags", "label", "labels", "keyword", "keywords",
     "index", "indices", "array", "list", "collection",
     "item", "object", "parent", "child", "sibling",
-    "first", "last", "prev", "next", "current",
+    "first", "last", "prev", "current",
     "default", "fallback", "alternative", "option",
-    "param", "parameter", "arg", "argument", "option",
+    "param", "parameter", "arg", "argument",
     "flag", "switch", "toggle", "checkbox", "radio",
     "select", "choice", "pick", "choose", "decide",
     "confirmation", "confirm", "verify", "validate",
@@ -97,13 +98,13 @@ PARAM_NAMES: List[str] = [
     "nonce", "csrf", "xsrf", "state", "challenge",
     "callback_url", "webhook", "hook", "listener",
     "endpoint", "service", "provider", "handler",
-    "adapter", "factory", "builder", "manager",
     "config", "configuration", "settings", "preference",
-    "option", "setting", "property", "attribute",
+    "setting", "property", "attribute",
     "data", "payload", "body", "content", "value",
     "raw", "encoded", "decoded", "compressed",
-    "signature", "digest", "checksum", "hash",
+    "digest", "checksum",
 ]
+PARAM_NAMES: List[str] = list(dict.fromkeys(_RAW_PARAM_NAMES))
 
 LABELS = {
     "en": {

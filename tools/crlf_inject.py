@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Test for CRLF injection (HTTP response splitting) vulnerabilities.
 
-Sends HTTP requests with CRLF payloads (`%0d%0a`, `%0a%0d`) in the URL path
-and query parameters to detect whether the server reflects attacker-controlled
-line endings in the response headers. Successful injection can allow header
-injection, response cache poisoning, and HTTP response splitting.
+Uses http.client directly (bypassing urllib's URL encoding) to inject CRLF
+sequences into the URL path and query parameters. If the server reflects the
+injected newlines into its response headers, an attacker can insert arbitrary
+headers into the HTTP response.
 
 Exit codes:
   0  No CRLF injection detected
@@ -13,8 +13,8 @@ Exit codes:
   3  Network / DNS / TLS error
 
 Examples:
-    tools/crlf_inject.py https://example.com/page?url=https://evil.com
-    tools/crlf_inject.py https://example.com/page?url=https://evil.com --lang pt
+    tools/crlf_inject.py https://example.com/page
+    tools/crlf_inject.py https://example.com/login?next=/dashboard --lang pt
     tools/crlf_inject.py https://example.com/page --json
 """
 
@@ -26,11 +26,9 @@ import json
 import re
 import socket
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import asdict, dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from _lib import (
     build_ssl_context,
@@ -44,38 +42,40 @@ TOOL_NAME = "crlf_inject.py"
 USER_AGENT = make_user_agent(TOOL_NAME)
 LANGS = ("en", "pt")
 
-# CRLF payload variants.
-PAYLOADS: List[tuple[str, str]] = [
-    ("%0d%0a", "LF+CR (percent-encoded)"),
-    ("%0a%0d", "CR+LF (percent-encoded)"),
-    ("%0d", "LF only (percent-encoded)"),
-    ("%0a", "CR only (percent-encoded)"),
-    ("%0d%0aX-Injected: yes", "LF+CR + header (percent-encoded)"),
-    ("%0d%0aSet-Cookie: evil=1", "LF+CR + Set-Cookie (percent-encoded)"),
+# Canary header name — easy to recognise in the response.
+CANARY_HEADER = "X-Crlf-Test"
+CANARY_VALUE = "injected"
+
+# Payloads: raw strings to append to the path or a param value.
+# The http.client layer does NOT re-encode these, so they reach the server as-is.
+PAYLOADS: List[Tuple[str, str]] = [
+    (f"%0d%0a{CANARY_HEADER}:%20{CANARY_VALUE}", "CR+LF percent-encoded (%0d%0a)"),
+    (f"%0a{CANARY_HEADER}:%20{CANARY_VALUE}", "LF-only percent-encoded (%0a)"),
+    (f"%0d{CANARY_HEADER}:%20{CANARY_VALUE}", "CR-only percent-encoded (%0d)"),
+    (f"%0D%0A{CANARY_HEADER}:%20{CANARY_VALUE}", "CR+LF uppercase (%0D%0A)"),
+    (f"%E5%98%8A%E5%98%8D{CANARY_HEADER}:%20{CANARY_VALUE}", "Unicode CRLF (%E5%98%8A%E5%98%8D)"),
 ]
 
 LABELS = {
     "en": {
         "target": "Target",
-        "injection_points": "Injection points tested",
-        "payloads": "Payloads per point",
+        "tests": "Tests run",
         "findings_header": "CRLF injection found",
         "no_findings": "No CRLF injection detected with the payloads tried.",
-        "location": "Location",
-        "payload_label": "Payload",
-        "response_snippet": "Response snippet",
+        "injection_point": "Injection point",
+        "payload_used": "Payload",
+        "canary_found": "Canary header in response",
         "err_scheme": "error: URL must start with http:// or https://",
         "err_net": "error: could not reach",
     },
     "pt": {
         "target": "Alvo",
-        "injection_points": "Pontos de injeção testados",
-        "payloads": "Payloads por ponto",
+        "tests": "Testes executados",
         "findings_header": "Injeção CRLF encontrada",
         "no_findings": "Nenhuma injeção CRLF detetada com os payloads tentados.",
-        "location": "Localização",
-        "payload_label": "Payload",
-        "response_snippet": "Excerto da resposta",
+        "injection_point": "Ponto de injeção",
+        "payload_used": "Payload",
+        "canary_found": "Cabeçalho canary na resposta",
         "err_scheme": "erro: URL tem de começar por http:// ou https://",
         "err_net": "erro: não foi possível alcançar",
     },
@@ -83,33 +83,34 @@ LABELS = {
 
 ISSUE_TEXT = {
     "en": {
-        "label": "CRLF injection in {} → {}",
+        "label": "CRLF injection confirmed at {} with payload: {}",
         "risk": (
-            "HTTP response splitting allows an attacker to inject arbitrary HTTP headers "
-            "or even an entire second response. Commonly chained with cache poisoning to "
-            "serve malicious content to other users, or header injection (Set-Cookie, "
-            "Location) to steal sessions or redirect users."
+            "HTTP response splitting allows an attacker to inject arbitrary headers into "
+            "the response. Consequences include: session fixation via Set-Cookie injection, "
+            "XSS via injecting a crafted body, cache poisoning to serve malicious content "
+            "to other users, and redirect via a Location header."
         ),
         "fix": (
-            "Never reflect user input directly in the response. If input must appear in "
-            "headers or URL paths, apply strict validation and encoding: strip or reject "
-            "any CRLF sequences (%0d, %0a, carriage returns, line feeds)."
+            "Strip or reject CR (\\r, %0d) and LF (\\n, %0a) characters from any input that "
+            "is reflected in HTTP response headers. Apply this validation server-side before "
+            "placing user input in Location, Set-Cookie, or any other header."
         ),
         "risk_label": "Risk:",
         "fix_label": "Fix:",
     },
     "pt": {
-        "label": "Injeção CRLF em {} → {}",
+        "label": "Injeção CRLF confirmada em {} com payload: {}",
         "risk": (
-            "HTTP response splitting permite que um atacante injete cabeçalhos HTTP arbitrários "
-            "ou até uma segunda resposta completa. Frequentemente encadeado com cache poisoning "
-            "para servir conteúdo malicioso a outros utilizadores, ou injeção de cabeçalhos "
-            "(Set-Cookie, Location) para roubo de sessões ou redirecionamento de utilizadores."
+            "HTTP response splitting permite que um atacante injete cabeçalhos arbitrários "
+            "na resposta. Consequências incluem: fixação de sessão via injeção de Set-Cookie, "
+            "XSS via injeção de body manipulado, cache poisoning para servir conteúdo "
+            "malicioso a outros utilizadores, e redirect via header Location."
         ),
         "fix": (
-            "Nunca reflitas input de utilizador diretamente na resposta. Se o input tem de "
-            "aparecer em cabeçalhos ou paths, aplica validação estrita e encoding: remove ou "
-            "rejeita qualquer sequência CRLF (%0d, %0a, carriage returns, line feeds)."
+            "Remove ou rejeita caracteres CR (\\r, %0d) e LF (\\n, %0a) de qualquer input "
+            "que seja refletido em cabeçalhos de resposta HTTP. Aplica esta validação no "
+            "servidor antes de colocar input do utilizador em Location, Set-Cookie, ou "
+            "qualquer outro cabeçalho."
         ),
         "risk_label": "Risco:",
         "fix_label": "Correção:",
@@ -119,117 +120,164 @@ ISSUE_TEXT = {
 
 @dataclass
 class Finding:
-    location: str
+    injection_point: str
     payload_desc: str
     payload: str
-    response_preview: str
+    canary_header_value: str
 
 
-def _build_injection_url(base_url: str, injection_point: str, payload: str) -> str:
-    """Build a URL with the payload injected at the specified point."""
-    parsed = urllib.parse.urlparse(base_url)
-
-    if injection_point == "path":
-        # Inject into the path
-        new_path = parsed.path + payload
-        return urllib.parse.urlunparse(parsed._replace(path=new_path))
-    else:  # injection_point == "query_param"
-        # Inject into each existing query parameter
-        qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-        if not qs:
-            # No existing params; create a test param
-            qs = {"test": [payload]}
+def _connect(host: str, port: int, use_https: bool, timeout: float) -> Optional[http.client.HTTPConnection]:
+    """Open an http.client connection, with SSL context if needed."""
+    try:
+        if use_https:
+            ctx = build_ssl_context()
+            conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=ctx)
         else:
-            # Replace the first param's value with the payload
-            first_param = next(iter(qs))
-            qs[first_param] = [payload]
-        return urllib.parse.urlunparse(
-            parsed._replace(query=urllib.parse.urlencode(qs, doseq=True))
-        )
+            conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        return conn
+    except Exception:
+        return None
 
 
-def _probe(
-    url: str,
-    injection_point: str,
+def _probe_path(
+    host: str,
+    port: int,
+    base_path: str,
+    query: str,
+    use_https: bool,
     payload: str,
     payload_desc: str,
     timeout: float,
     user_agent: str,
 ) -> Optional[Finding]:
-    """Inject payload and check if it appears in response headers."""
-    test_url = _build_injection_url(url, injection_point, payload)
+    """Inject CRLF into the URL path and check if canary appears in response headers."""
+    # Build the raw request target: path + payload + query
+    # http.client does NOT URL-encode the request target, so payload reaches server raw.
+    raw_path = base_path + payload
+    if query:
+        raw_path = raw_path + "?" + query
 
+    conn = _connect(host, port, use_https, timeout)
+    if conn is None:
+        return None
     try:
-        req = urllib.request.Request(test_url, headers={"User-Agent": user_agent})
-        ctx = build_ssl_context()
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            # Get raw response headers as string
-            headers_str = str(resp.headers)
-            body = resp.read().decode("utf-8", errors="replace")[:500]  # First 500 bytes
-            response_preview = headers_str[:200] + "\n..." if len(headers_str) > 200 else headers_str
+        conn.request("GET", raw_path, headers={"User-Agent": user_agent, "Connection": "close"})
+        resp = conn.getresponse()
+        headers = dict(resp.getheaders())
+        # Check if the canary header was injected into the response
+        for hname, hval in headers.items():
+            if hname.lower() == CANARY_HEADER.lower() and CANARY_VALUE in hval:
+                return Finding(
+                    injection_point="URL path",
+                    payload_desc=payload_desc,
+                    payload=payload,
+                    canary_header_value=f"{hname}: {hval}",
+                )
+        return None
+    except Exception:
+        return None
+    finally:
+        conn.close()
 
-            # Check if our injected CRLF appears in the response
-            if "%0d%0a" in payload or "%0a%0d" in payload or "%0d" in payload or "%0a" in payload:
-                # We injected raw CRLF sequences; check if they're reflected
-                # Look for header names we tried to inject
-                if "X-Injected" in response_preview or "evil=" in response_preview or "Set-Cookie" in response_preview:
+
+def _probe_query(
+    host: str,
+    port: int,
+    base_path: str,
+    qs: dict,
+    use_https: bool,
+    payload: str,
+    payload_desc: str,
+    timeout: float,
+    user_agent: str,
+) -> Optional[Finding]:
+    """Inject CRLF into a query parameter value and check for header injection."""
+    # For each existing query param, inject the payload as its value.
+    # Also test with a fresh 'url' param if no query string exists.
+    test_params = list(qs.keys()) if qs else ["url"]
+
+    for param in test_params[:3]:  # Limit to first 3 params to keep it fast
+        injected_qs = dict(qs)
+        injected_qs[param] = payload
+        # Build raw query string without re-encoding the payload value
+        # We manually construct the query to avoid double-encoding.
+        parts = []
+        for k, v in injected_qs.items():
+            if k == param:
+                parts.append(f"{urllib.parse.quote(k)}={payload}")
+            else:
+                vals = v if isinstance(v, list) else [v]
+                for val in vals:
+                    parts.append(f"{urllib.parse.quote(k)}={urllib.parse.quote(str(val))}")
+        raw_path = base_path + "?" + "&".join(parts)
+
+        conn = _connect(host, port, use_https, timeout)
+        if conn is None:
+            continue
+        try:
+            conn.request("GET", raw_path, headers={"User-Agent": user_agent, "Connection": "close"})
+            resp = conn.getresponse()
+            headers = dict(resp.getheaders())
+            for hname, hval in headers.items():
+                if hname.lower() == CANARY_HEADER.lower() and CANARY_VALUE in hval:
                     return Finding(
-                        location=f"{injection_point} (URL: {test_url[:80]}...)",
+                        injection_point=f"query parameter '{param}'",
                         payload_desc=payload_desc,
                         payload=payload,
-                        response_preview=response_preview,
+                        canary_header_value=f"{hname}: {hval}",
                     )
-            return None
-    except urllib.error.HTTPError as e:
-        headers_str = str(e.headers)
-        response_preview = headers_str[:200] + "\n..." if len(headers_str) > 200 else headers_str
-
-        # Same check for error responses
-        if "X-Injected" in response_preview or "evil=" in response_preview or "Set-Cookie" in response_preview:
-            return Finding(
-                location=f"{injection_point} (URL: {test_url[:80]}...)",
-                payload_desc=payload_desc,
-                payload=payload,
-                response_preview=response_preview,
-            )
-        return None
-    except (urllib.error.URLError, socket.timeout, OSError):
-        return None
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    return None
 
 
-def run(url: str, timeout: float, user_agent: str) -> tuple[List[Finding], int]:
-    """Test URL for CRLF injection at multiple points."""
-    findings: List[Finding] = []
+def run(url: str, timeout: float, user_agent: str) -> Tuple[List[Finding], int]:
     parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    use_https = parsed.scheme == "https"
+    base_path = parsed.path or "/"
+    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
-    injection_points = ["path"]
-    if parsed.query:
-        injection_points.append("query_param")
+    findings: List[Finding] = []
+    tests_run = 0
+    seen_points: set = set()
 
-    for point in injection_points:
-        for payload, payload_desc in PAYLOADS:
-            f = _probe(url, point, payload, payload_desc, timeout, user_agent)
-            if f:
-                findings.append(f)
-                break  # One finding per injection point is enough
+    for payload, payload_desc in PAYLOADS:
+        # Test path injection
+        f = _probe_path(host, port, base_path, parsed.query, use_https, payload, payload_desc, timeout, user_agent)
+        tests_run += 1
+        if f and "path" not in seen_points:
+            findings.append(f)
+            seen_points.add("path")
 
-    return findings, len(injection_points) * len(PAYLOADS)
+        # Test query injection
+        f = _probe_query(host, port, base_path, qs, use_https, payload, payload_desc, timeout, user_agent)
+        tests_run += 1
+        if f and "query" not in seen_points:
+            findings.append(f)
+            seen_points.add("query")
+
+    return findings, tests_run
 
 
-def print_human(url: str, findings: List[Finding], tests_count: int, lang: str) -> None:
+def print_human(url: str, findings: List[Finding], tests_run: int, lang: str) -> None:
     L = LABELS[lang]
     IT = ISSUE_TEXT[lang]
 
     print(f"\n{L['target']}: {url}")
-    print(f"{L['injection_points']}: {tests_count // len(PAYLOADS)}  ({L['payloads']}: {len(PAYLOADS)})")
+    print(f"{L['tests']}: {tests_run}  ({len(PAYLOADS)} payloads × 2 injection points)")
     print()
 
     if findings:
         print(f"{L['findings_header']} ({len(findings)}):\n")
         for f in findings:
-            print(f"  ✗ {IT['label'].format(f.location, f.payload_desc)}")
-            print(f"     {L['payload_label']}: {f.payload}")
-            print(f"     {L['response_snippet']}: {f.response_preview[:150]}")
+            print(f"  ✗ {IT['label'].format(f.injection_point, f.payload_desc)}")
+            print(f"     {L['injection_point']}: {f.injection_point}")
+            print(f"     {L['payload_used']}: {f.payload}")
+            print(f"     {L['canary_found']}: {f.canary_header_value}")
             print(f"     {IT['risk_label']} {IT['risk']}")
             print(f"     {IT['fix_label']} {IT['fix']}")
             print()
@@ -268,18 +316,18 @@ def main() -> int:
         print(f"{L['err_scheme']} ({args.url!r})", file=sys.stderr)
         return 2
 
-    findings, tests_count = run(args.url, args.timeout, USER_AGENT)
+    findings, tests_run = run(args.url, args.timeout, USER_AGENT)
 
     if args.as_json:
         print(json.dumps({
             "url": args.url,
             "lang": args.lang,
+            "tests_run": tests_run,
             "payloads": [p[0] for p in PAYLOADS],
-            "tests_count": tests_count,
             "findings": [asdict(f) for f in findings],
         }, indent=2, ensure_ascii=False))
     else:
-        print_human(args.url, findings, tests_count, args.lang)
+        print_human(args.url, findings, tests_run, args.lang)
 
     return 1 if findings else 0
 

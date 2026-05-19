@@ -183,15 +183,19 @@ def _probe(
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             body = resp.read()
             elapsed = time.time() - start
-            # Timing outlier: server took much longer (may indicate backend fetch)
             timing_delta = elapsed - baseline_time
-            if timing_delta > 1.0:  # >1s delta is suspicious
+            # Primary signal: timing outlier indicates the server fetched the URL.
+            # Threshold is 2× baseline to reduce false positives from network jitter.
+            if timing_delta > max(1.0, baseline_time * 2):
                 return Finding(
                     param=param, payload=payload, payload_desc="",
                     status=resp.status, response_size=len(body), timing_delta=timing_delta,
                 )
-            # Unusual response size or status might indicate metadata endpoint
-            if len(body) > 1000 and "iam" in payload.lower() or "meta" in payload.lower():
+            # Secondary signal: unusually large response from an internal address
+            # (e.g. metadata endpoint returning credentials JSON).
+            # Guard both conditions together to avoid false positives.
+            is_internal = any(x in payload for x in ("169.254", "127.0.0", "localhost", "[::1]"))
+            if is_internal and len(body) > 500 and resp.status == 200:
                 return Finding(
                     param=param, payload=payload, payload_desc="",
                     status=resp.status, response_size=len(body), timing_delta=timing_delta,
@@ -200,11 +204,13 @@ def _probe(
     except urllib.error.HTTPError as e:
         elapsed = time.time() - start
         timing_delta = elapsed - baseline_time
-        # Error response from internal service (e.g., 404 from internal server)
-        if 400 <= e.code < 500:
+        # A 4xx from an internal address is suspicious (real server responding).
+        is_internal = any(x in payload for x in ("169.254", "127.0.0", "localhost", "[::1]"))
+        if is_internal and 400 <= e.code < 500:
+            body_bytes = e.read()
             return Finding(
                 param=param, payload=payload, payload_desc="",
-                status=e.code, response_size=len(e.read()), timing_delta=timing_delta,
+                status=e.code, response_size=len(body_bytes), timing_delta=timing_delta,
             )
         return None
     except (urllib.error.URLError, socket.timeout, OSError):
