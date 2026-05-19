@@ -249,6 +249,18 @@ tools/http_smuggling_probe.py https://example.com --lang pt
 tools/http_smuggling_probe.py https://example.com --json
 ```
 
+## `xxe_probe.py`
+
+Probe for XML External Entity (XXE) injection vulnerabilities. POSTs crafted XML to an endpoint and checks responses for evidence of file disclosure or SSRF. Tests 6 payload variants across 3 techniques: classic entity injection (file:///etc/passwd, C:/Windows/win.ini), SSRF via external entity (AWS IMDSv1, GCP metadata), XInclude file read (bypasses DOCTYPE filtering), and blind SSRF via parameter entity (timing side-channel). Routes through Burp with `--proxy`.
+
+```bash
+tools/xxe_probe.py https://example.com/api/parse
+tools/xxe_probe.py https://example.com/api --content-type text/xml
+tools/xxe_probe.py https://example.com/api --timeout 15 --lang pt
+tools/xxe_probe.py https://example.com/soap --proxy http://127.0.0.1:8080
+tools/xxe_probe.py https://example.com/api --json
+```
+
 ## `subdomain_takeover.py`
 
 Detect subdomains vulnerable to takeover — where a CNAME points to a third-party service that's no longer registered (forgotten GitHub Pages site, dead Heroku app, abandoned S3 bucket). An attacker can register that orphaned service and serve content under the original domain.

@@ -80,6 +80,7 @@ TABLE OF CONTENTS · ÍNDICE
      1.11 crlf_inject.py         HTTP response splitting / CRLF injection probe
      1.12 ssrf_probe.py          Server-Side Request Forgery (SSRF) probe
      1.13 http_smuggling_probe.py HTTP/1.1 request smuggling (CL.TE / TE.CL)
+     1.14 xxe_probe.py           XML External Entity (XXE) injection probe
 
   2. DNS & NETWORK
      2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
@@ -123,7 +124,7 @@ TABLE OF CONTENTS · ÍNDICE
 ================================================================================
    [check_headers, cookie_check, cors_check, http_methods, robots_check,
     header_diff, tech_fingerprint, path_scan, open_redirect, param_miner,
-    crlf_inject, ssrf_probe, http_smuggling_probe]
+    crlf_inject, ssrf_probe, http_smuggling_probe, xxe_probe]
 
 --------------------------------------------------------------------------------
 1.1 check_headers.py
@@ -1632,6 +1633,140 @@ TABLE OF CONTENTS · ÍNDICE
       negocia HTTP/2 (ALPN), os probes desta ferramenta não são relevantes.
     - Confirma sempre com o HTTP Request Smuggler do Burp Suite antes
       de reportar. Deteção por timing é um ponto de partida, não uma prova.
+
+--------------------------------------------------------------------------------
+1.14 xxe_probe.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Probe for XML External Entity (XXE) injection. POSTs crafted XML to
+    an endpoint and checks responses for evidence of file disclosure or
+    SSRF. Tests 6 payloads across 3 techniques: classic entity injection
+    (file:///etc/passwd, C:/Windows/win.ini), SSRF via external entity
+    (AWS IMDSv1, GCP metadata), XInclude file read (bypasses DOCTYPE
+    filtering), and blind SSRF via parameter entity (timing side-channel
+    when no in-band output is possible). Proxy-aware: use --proxy to
+    route through Burp Suite for full request/response inspection.
+
+[EN] QUICK START
+    $ tools/xxe_probe.py https://example.com/api/parse
+
+[EN] EXAMPLES
+    # Scenario 1 — baseline probe on a REST endpoint that accepts XML
+    $ tools/xxe_probe.py https://example.com/api/parse
+    Expected output (truncated):
+        Target: https://example.com/api/parse
+        Content-Type: application/xml  |  baseline: 0.12s  |  Tests run: 6
+
+        No XXE injection detected with the payloads tried.
+
+    # Scenario 2 — confirmed file read finding on a vulnerable parser
+        XXE injection found (1):
+
+          ✗ File read — file:///etc/passwd
+             Technique: entity
+             Evidence: Response contained: 'root:x:0:0:'
+             Status: Confirmed (signature match)
+             Risk: XXE allows reading local files (e.g. /etc/passwd, ...
+             Fix:  Disable external entity processing in the XML parser. ...
+
+    # Scenario 3 — Burp Suite integration for manual follow-up
+    $ tools/xxe_probe.py https://example.com/api \
+          --proxy http://127.0.0.1:8080 --content-type text/xml --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --content-type CT   Content-Type header when posting. Default:
+                        application/xml. Try text/xml for SOAP endpoints.
+    --timeout SECS      Per-request timeout. Default: 10. Increase to 20+
+                        for timing side-channel accuracy.
+    --proxy URL         Route through a proxy (e.g. http://127.0.0.1:8080).
+
+[EN] EXIT CODES
+    0  No XXE detected
+    1  One or more injection points confirmed or suspected (timing)
+    2  Bad URL / usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - The XInclude payload (1.14) is the most useful when a WAF strips
+      DOCTYPE declarations — XInclude uses a namespace instead and often
+      slips through basic filters.
+    - Timing detection for the parameter entity payload requires the
+      server to actually attempt outbound connection to 169.254.169.254.
+      In non-cloud environments the link-local IP is not routable and
+      the connection fails fast — no timing signal. Raise --timeout to
+      20s for better accuracy.
+    - Pair with ssrf_probe if you see SSRF evidence: xxe_probe tests
+      the XML parsing layer; ssrf_probe tests URL parameter reflection.
+    - A 200 OK with empty or error body can still mean XXE was parsed but
+      the result wasn't reflected. In that case, use --proxy and inspect
+      the raw request/response manually in Burp.
+
+[PT] PROPÓSITO
+    Pesquisa injeção de XML External Entity (XXE). Faz POST com XML
+    crafted para um endpoint e verifica respostas por evidência de
+    divulgação de ficheiros ou SSRF. Testa 6 payloads em 3 técnicas:
+    injeção clássica de entidade (file:///etc/passwd,
+    C:/Windows/win.ini), SSRF via entidade externa (AWS IMDSv1,
+    metadata GCP), leitura de ficheiro via XInclude (contorna filtros
+    DOCTYPE), e SSRF cego via entidade de parâmetro (side-channel de
+    temporização quando não há output in-band). Compatível com proxy:
+    usa --proxy para encaminhar pelo Burp Suite.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/xxe_probe.py https://example.com/api/parse
+
+[PT] EXEMPLOS
+    # Cenário 1 — probe base num endpoint REST que aceita XML
+    $ tools/xxe_probe.py https://example.com/api/parse
+    Output esperado (truncado):
+        Alvo: https://example.com/api/parse
+        Content-Type: application/xml  |  baseline: 0.12s  |  Testes: 6
+
+        Nenhuma injeção XXE detetada com os payloads tentados.
+
+    # Cenário 2 — finding confirmado de leitura de ficheiro
+        Injeção XXE encontrada (1):
+
+          ✗ File read — file:///etc/passwd
+             Técnica: entity
+             Evidência: Response contained: 'root:x:0:0:'
+             Status: Confirmado (correspondência de assinatura)
+             Risco: XXE permite ler ficheiros locais (ex: /etc/passwd ...
+             Correção: Desativa o processamento de entidades externas ...
+
+    # Cenário 3 — integração com Burp Suite para análise manual
+    $ tools/xxe_probe.py https://example.com/api \
+          --proxy http://127.0.0.1:8080 --content-type text/xml --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --content-type CT   Content-Type ao fazer POST. Por omissão:
+                        application/xml. Usa text/xml para endpoints SOAP.
+    --timeout SEGUNDOS  Timeout por pedido. Por omissão: 10. Aumenta para
+                        20+ para melhor precisão no side-channel temporal.
+    --proxy URL         Encaminha pelo proxy (ex: http://127.0.0.1:8080).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhuma XXE detetada
+    1  Um ou mais pontos de injeção confirmados ou suspeitos (timing)
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - O payload XInclude é o mais útil quando um WAF remove declarações
+      DOCTYPE — o XInclude usa um namespace e passa frequentemente em
+      filtros básicos.
+    - A deteção temporal para a entidade de parâmetro requer que o
+      servidor tente ligar a 169.254.169.254. Em ambientes não-cloud,
+      o IP link-local não é encaminhável e a ligação falha rapidamente
+      — sem sinal de temporização. Aumenta --timeout para 20s.
+    - Combina com ssrf_probe se vires evidência de SSRF: xxe_probe testa
+      a camada de parsing XML; ssrf_probe testa reflexo de parâmetros URL.
+    - Um 200 OK com body vazio ou de erro ainda pode significar que o XXE
+      foi processado mas o resultado não foi refletido. Nesse caso usa
+      --proxy e inspeciona manualmente no Burp.
 
 ================================================================================
 2. DNS & NETWORK

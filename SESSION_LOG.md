@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements across all 22 tools; tool count unchanged at 32).
+Last updated: 2026-05-19 (Session 4 continued — Option A/B improvements: 3 tools enhanced + 1 new tool; total 33 tools).
 
 ---
 
@@ -134,6 +134,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `crlf_inject.py` | CRLF injection / HTTP response splitting (http.client raw, canary-header confirmed, 8 payload variants incl. double-encoded) |
 | `ssrf_probe.py` | SSRF probe: 22 internal payloads (AWS IMDSv1, GCP, Azure, localhost:ports) |
 | `http_smuggling_probe.py` | HTTP/1.1 request smuggling CL.TE / TE.CL via raw socket timing side-channel |
+| `xxe_probe.py` | XXE injection probe: entity file read + SSRF + XInclude + param-entity timing (33 total) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.
