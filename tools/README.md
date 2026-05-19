@@ -107,7 +107,7 @@ When the URL redirects (301/302/303/307/308), the report shows both the requeste
 
 ## `multidecode.py`
 
-Auto-detect and decode common encodings: Base64, Base32, hex, URL, HTML entities, binary, ROT13. Useful when you grab a suspicious string from a CTF or HTTP traffic.
+Auto-detect and decode common encodings: Base64, Base32, Base85, hex, URL, HTML entities, binary, ROT13, and Unicode escapes (`\uXXXX`, `\u{XXXX}`, `\xXX`). Useful when you grab a suspicious string from a CTF or HTTP traffic.
 
 ```bash
 tools/multidecode.py "SGVsbG8gd29ybGQh"
@@ -171,15 +171,15 @@ tools/cors_check.py https://api.example.com/users/me --lang pt --json
 
 ## `subfinder.py`
 
-Enumerate subdomains for a base domain. Queries crt.sh transparency-logs JSON API, then optionally brute-forces a small built-in wordlist (or one you provide). All candidates are DNS-resolved in parallel (default 10 threads) with a small per-worker jitter to spread the load across resolvers instead of bursting them.
+Enumerate subdomains for a base domain. Queries crt.sh transparency-logs JSON API, HackerTarget hostsearch API (free, no key), then optionally brute-forces a small built-in wordlist (or one you provide). All candidates are DNS-resolved in parallel (default 10 threads) with a small per-worker jitter to spread the load across resolvers instead of bursting them.
 
 ```bash
 tools/subfinder.py example.com
 tools/subfinder.py example.com --lang pt
 tools/subfinder.py example.com --wordlist /usr/share/wordlists/subdomains-top1million.txt
-tools/subfinder.py example.com --skip-crtsh        # only wordlist brute-force
-tools/subfinder.py example.com --skip-bruteforce   # only crt.sh
-tools/subfinder.py example.com --threads 20 --jitter 0.3   # tune for your resolver
+tools/subfinder.py example.com --skip-crtsh --skip-hackertarget  # only wordlist brute-force
+tools/subfinder.py example.com --skip-bruteforce                  # only passive sources
+tools/subfinder.py example.com --threads 20 --jitter 0.3          # tune for your resolver
 ```
 
 ## `path_scan.py`
@@ -220,7 +220,7 @@ echo "https://api.example.com/users" | tools/param_miner.py -
 
 ## `crlf_inject.py`
 
-Test for HTTP response splitting (CRLF injection). Uses `http.client` directly — bypassing `urllib`'s URL encoding — to inject CRLF sequences (`%0d%0a`, `%0a`, `%0D%0A`, Unicode CRLF `%E5%98%8A%E5%98%8D`) into the URL path and query parameters. Confirms injection only if the canary header (`X-Crlf-Test: injected`) appears in the server's actual response headers — no false positives from sites that already set cookies. Use `--max-params N` (default 3) to control how many query parameters are tested per payload.
+Test for HTTP response splitting (CRLF injection). Uses `http.client` directly — bypassing `urllib`'s URL encoding — to inject 8 CRLF payload variants (single-encoded `%0d%0a`/`%0a`/`%0D%0A`, Unicode CRLF `%E5%98%8A%E5%98%8D`, and double-encoded `%250d%250a`/`%250D%250A`/`%250a` for WAF bypass) into the URL path and query parameters. Confirms injection only if the canary header (`X-Crlf-Test: injected`) appears in the server's actual response headers — no false positives from sites that already set cookies. Use `--max-params N` (default 3) to control how many query parameters are tested per payload.
 
 ```bash
 tools/crlf_inject.py https://example.com/page

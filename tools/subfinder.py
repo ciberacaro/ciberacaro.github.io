@@ -33,25 +33,31 @@ LABELS = {
     "en": {
         "domain": "Domain",
         "querying_crt": "Querying crt.sh...",
+        "querying_hackertarget": "Querying HackerTarget...",
         "crt_results": "crt.sh results",
+        "hackertarget_results": "HackerTarget results",
         "bruteforce_results": "Wordlist brute-force results",
         "resolved": "Resolved subdomains",
         "skipped": "Skipped",
         "no_resolve": "did not resolve",
         "total": "Total unique resolved",
         "err_crt": "warning: crt.sh query failed",
+        "err_hackertarget": "warning: HackerTarget query failed",
         "err_domain": "error: invalid domain",
     },
     "pt": {
         "domain": "Domínio",
         "querying_crt": "A consultar crt.sh...",
+        "querying_hackertarget": "A consultar HackerTarget...",
         "crt_results": "Resultados crt.sh",
+        "hackertarget_results": "Resultados HackerTarget",
         "bruteforce_results": "Resultados de brute-force via wordlist",
         "resolved": "Subdomínios resolvidos",
         "skipped": "Ignorados",
         "no_resolve": "não resolveram",
         "total": "Total único resolvido",
         "err_crt": "aviso: consulta a crt.sh falhou",
+        "err_hackertarget": "aviso: consulta ao HackerTarget falhou",
         "err_domain": "erro: domínio inválido",
     },
 }
@@ -94,6 +100,27 @@ class ResolvedHost:
     hostname: str
     ips: list[str]
     source: str
+
+
+def query_hackertarget(domain: str, timeout: float = 15.0) -> list[str]:
+    """Query HackerTarget hostsearch API for known subdomains (free, no key)."""
+    url = f"https://api.hackertarget.com/hostsearch/?q={urllib.parse.quote(domain)}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    ctx = build_ssl_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    # API returns error text (not HTTP error code) when rate-limited or invalid
+    first = raw.strip().lower()
+    if first.startswith(("error", "api count", "no results", "invalid")):
+        raise ValueError(raw.strip())
+    results = []
+    for line in raw.strip().splitlines():
+        parts = line.split(",", 1)
+        if parts:
+            host = parts[0].strip().lower()
+            if host and host.endswith(domain) and "@" not in host:
+                results.append(host)
+    return sorted(set(results))
 
 
 def query_crtsh(domain: str, timeout: float = 30.0) -> list[str]:
@@ -154,7 +181,7 @@ def load_wordlist(path: Optional[str]) -> list[str]:
     if path:
         with open(path) as f:
             return [line.strip() for line in f if line.strip() and not line.startswith("#")]
-    return DEFAULT_WORDLIST
+    return list(DEFAULT_WORDLIST)
 
 
 def print_human(domain: str, resolved: list[ResolvedHost], skipped: int, lang: str) -> None:
@@ -187,7 +214,8 @@ def main() -> int:
                         help="Max random delay (seconds) before each DNS query, to avoid bursts (default: 0.1).")
     parser.add_argument("--timeout", type=float, default=30.0, help="crt.sh request timeout (default 30s)")
     parser.add_argument("--skip-crtsh", action="store_true", help="Don't query crt.sh, only brute-force")
-    parser.add_argument("--skip-bruteforce", action="store_true", help="Skip wordlist brute-force, only crt.sh")
+    parser.add_argument("--skip-hackertarget", action="store_true", help="Skip HackerTarget API query")
+    parser.add_argument("--skip-bruteforce", action="store_true", help="Skip wordlist brute-force, only passive sources")
     args = parser.parse_args()
     L = LABELS[args.lang]
     USER_AGENT = args.user_agent
@@ -206,6 +234,17 @@ def main() -> int:
                 candidates[host] = "crt.sh"
         except (urllib.error.URLError, socket.timeout) as e:
             print(f"{L['err_crt']}: {e}", file=sys.stderr)
+
+    if not args.skip_hackertarget:
+        print(L["querying_hackertarget"], file=sys.stderr)
+        try:
+            for host in query_hackertarget(domain, timeout=args.timeout):
+                if host not in candidates:
+                    candidates[host] = "hackertarget"
+        except (urllib.error.URLError, socket.timeout) as e:
+            print(f"{L['err_hackertarget']}: {e}", file=sys.stderr)
+        except ValueError as e:
+            print(f"{L['err_hackertarget']}: {e}", file=sys.stderr)
 
     if not args.skip_bruteforce:
         wordlist = load_wordlist(args.wordlist)
