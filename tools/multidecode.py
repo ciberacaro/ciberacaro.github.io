@@ -107,11 +107,17 @@ def try_base32(s: str) -> Optional[str]:
     padded = s_clean + "=" * ((8 - len(s_clean) % 8) % 8)
     try:
         decoded = base64.b32decode(padded)
-        text = decoded.decode("utf-8", errors="replace")
-        if is_readable(text):
-            return text
     except (binascii.Error, ValueError):
-        pass
+        return None
+    try:
+        text = decoded.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = decoded.decode("latin-1")
+        except UnicodeDecodeError:
+            return None
+    if is_readable(text):
+        return text
     return None
 
 
@@ -182,15 +188,58 @@ def try_binary_string(s: str) -> Optional[str]:
     return None
 
 
+def try_base85(s: str) -> Optional[str]:
+    """Decode RFC 1924 Base85 (Python base64.b85decode alphabet)."""
+    s_clean = s.strip()
+    if len(s_clean) < 5:
+        return None
+    try:
+        decoded = base64.b85decode(s_clean)
+    except (ValueError, binascii.Error):
+        return None
+    try:
+        text = decoded.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = decoded.decode("latin-1")
+        except UnicodeDecodeError:
+            return None
+    if is_readable(text):
+        return text
+    return None
+
+
+def try_unicode_escapes(s: str) -> Optional[str]:
+    r"""Decode \uXXXX, \u{XXXX} (JS-style), and \xXX escape sequences."""
+    if not re.search(r"\\[uxU]", s):
+        return None
+    try:
+        result = re.sub(r"\\u\{([0-9a-fA-F]+)\}", lambda m: chr(int(m.group(1), 16)), s)
+        result = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), result)
+        result = re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), result)
+    except (ValueError, OverflowError):
+        return None
+    if result == s:
+        return None
+    if is_readable(result):
+        return result
+    return None
+
+
 DECODERS = (
     ("Base64", try_base64),
     ("Base32", try_base32),
+    ("Base85", try_base85),
     ("Hex", try_hex),
     ("URL", try_url),
     ("HTML Entities", try_html_entities),
+    ("Unicode Escapes", try_unicode_escapes),
     ("Binary (8-bit)", try_binary_string),
     ("ROT13", try_rot13),
 )
+
+# Pre-filtered list used by cascade() — excludes ROT13 (its own inverse, would loop).
+CASCADE_DECODERS = [(name, fn) for name, fn in DECODERS if name != "ROT13"]
 
 
 def attempt_all(s: str) -> list[DecodeResult]:
@@ -203,18 +252,14 @@ def attempt_all(s: str) -> list[DecodeResult]:
 
 
 def cascade(s: str, max_depth: int = 5) -> list[tuple[str, str]]:
-    """Repeatedly try to decode until nothing new happens or we hit max_depth.
-
-    Skips ROT13 in cascade — it's its own inverse and would loop indefinitely.
-    """
-    cascade_decoders = [(name, fn) for name, fn in DECODERS if name != "ROT13"]
+    """Repeatedly try to decode until nothing new happens or we hit max_depth."""
     chain: list[tuple[str, str]] = []
     seen = {s}
     current = s
     for _ in range(max_depth):
         next_value = None
         next_name = None
-        for name, fn in cascade_decoders:
+        for name, fn in CASCADE_DECODERS:
             decoded = fn(current)
             if decoded and decoded != current and decoded not in seen:
                 next_value = decoded

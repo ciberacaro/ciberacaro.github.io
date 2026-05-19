@@ -54,6 +54,10 @@ PAYLOADS: List[Tuple[str, str]] = [
     (f"%0d{CANARY_HEADER}:%20{CANARY_VALUE}", "CR-only percent-encoded (%0d)"),
     (f"%0D%0A{CANARY_HEADER}:%20{CANARY_VALUE}", "CR+LF uppercase (%0D%0A)"),
     (f"%E5%98%8A%E5%98%8D{CANARY_HEADER}:%20{CANARY_VALUE}", "Unicode CRLF (%E5%98%8A%E5%98%8D)"),
+    # Double URL-encoded — bypass WAFs that decode only once before forwarding
+    (f"%250d%250a{CANARY_HEADER}:%20{CANARY_VALUE}", "Double-encoded CR+LF (%250d%250a)"),
+    (f"%250D%250A{CANARY_HEADER}:%20{CANARY_VALUE}", "Double-encoded CR+LF uppercase (%250D%250A)"),
+    (f"%250a{CANARY_HEADER}:%20{CANARY_VALUE}", "Double-encoded LF (%250a)"),
 ]
 
 LABELS = {
@@ -174,7 +178,7 @@ def _probe_path(
                     canary_header_value=f"{hname}: {hval}",
                 )
         return None
-    except Exception:
+    except (http.client.HTTPException, socket.error, OSError):
         return None
     finally:
         conn.close()
@@ -227,7 +231,7 @@ def _probe_query(
                         payload=payload,
                         canary_header_value=f"{hname}: {hval}",
                     )
-        except Exception:
+        except (http.client.HTTPException, socket.error, OSError):
             pass
         finally:
             conn.close()

@@ -80,6 +80,7 @@ TABLE OF CONTENTS · ÍNDICE
      1.11 crlf_inject.py         HTTP response splitting / CRLF injection probe
      1.12 ssrf_probe.py          Server-Side Request Forgery (SSRF) probe
      1.13 http_smuggling_probe.py HTTP/1.1 request smuggling (CL.TE / TE.CL)
+     1.14 xxe_probe.py           XML External Entity (XXE) injection probe
 
   2. DNS & NETWORK
      2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
@@ -101,7 +102,7 @@ TABLE OF CONTENTS · ÍNDICE
      5.3 cve_lookup.py          NVD CVE v2 API client
 
   6. CRYPTO / CTF
-     6.1 multidecode.py         Base64/hex/URL/binary/ROT13 (+ cascade)
+     6.1 multidecode.py         Base64/Base32/Base85/hex/URL/Unicode/ROT13 (+ cascade)
      6.2 xor_crack.py           Single-byte and multi-byte XOR recovery
 
   7. LOG ANALYSIS & FORENSICS
@@ -123,7 +124,7 @@ TABLE OF CONTENTS · ÍNDICE
 ================================================================================
    [check_headers, cookie_check, cors_check, http_methods, robots_check,
     header_diff, tech_fingerprint, path_scan, open_redirect, param_miner,
-    crlf_inject, ssrf_probe, http_smuggling_probe]
+    crlf_inject, ssrf_probe, http_smuggling_probe, xxe_probe]
 
 --------------------------------------------------------------------------------
 1.1 check_headers.py
@@ -1291,12 +1292,13 @@ TABLE OF CONTENTS · ÍNDICE
 [EN] PURPOSE
     Test for HTTP response splitting via CRLF injection. Uses http.client
     directly (bypassing urllib's URL encoding) so that CRLF sequences
-    (%0d%0a, %0a, %0D%0A, Unicode CRLF) reach the server raw. Injects
-    payloads into the URL path and query parameters; confirms a finding
-    only if the canary header (X-Crlf-Test: injected) appears in the
-    server's actual response headers. This avoids the false positives
-    that naive CRLF scanners produce by checking for Set-Cookie headers
-    that are unrelated to the injection.
+    reach the server raw. Probes 8 payload variants: single-encoded
+    %0d%0a/%0a/%0D%0A, Unicode CRLF %E5%98%8A%E5%98%8D, and three
+    double-encoded variants (%250d%250a/%250D%250A/%250a) that bypass
+    WAFs which only URL-decode once. Injects into the URL path and query
+    parameters; confirms a finding only if the canary header
+    (X-Crlf-Test: injected) appears in the server's actual response
+    headers, avoiding false positives from unrelated Set-Cookie headers.
 
 [EN] QUICK START
     $ tools/crlf_inject.py https://example.com/page
@@ -1306,7 +1308,7 @@ TABLE OF CONTENTS · ÍNDICE
     $ tools/crlf_inject.py https://example.com/login?next=/dashboard
     Expected output (truncated):
         Target: https://example.com/login?next=/dashboard
-        Tests run: 10  (5 payloads × 2 injection points)
+        Tests run: 16  (8 payloads × 2 injection points)
 
         No CRLF injection detected with the payloads tried.
 
@@ -1340,6 +1342,9 @@ TABLE OF CONTENTS · ÍNDICE
 [EN] TIPS
     - Only a confirmed canary header in the response counts as a finding.
       No canary = no finding, even if the server behaved oddly.
+    - The double-encoded payloads (%250d%250a) catch backends behind a
+      proxy/WAF that decodes once; the backend sees %0d%0a after one
+      decode pass and splits the response.
     - CRLF injection via query params is more common in older frameworks
       that reflect the redirect destination back in a Location header.
     - If you see the finding in the path but not the query (or vice versa),
@@ -1350,12 +1355,13 @@ TABLE OF CONTENTS · ÍNDICE
 [PT] PROPÓSITO
     Testa injeção CRLF (HTTP response splitting). Usa http.client
     diretamente (evitando o URL encoding do urllib) para que as
-    sequências CRLF (%0d%0a, %0a, %0D%0A, CRLF Unicode) cheguem ao
-    servidor sem alterar. Injeta payloads no path e nos parâmetros de
-    query; confirma um finding só se o cabeçalho canary
-    (X-Crlf-Test: injected) aparecer nos cabeçalhos reais da resposta.
-    Evita os falsos positivos que scanners CRLF ingénuos produzem ao
-    verificar Set-Cookie não relacionados com a injeção.
+    sequências CRLF cheguem ao servidor sem alterar. Testa 8 variantes
+    de payload: codificação simples %0d%0a/%0a/%0D%0A, CRLF Unicode
+    %E5%98%8A%E5%98%8D, e três variantes com dupla codificação
+    (%250d%250a/%250D%250A/%250a) para contornar WAFs que só fazem
+    decode uma vez. Injeta no path e nos parâmetros de query; confirma
+    um finding só se o cabeçalho canary (X-Crlf-Test: injected) aparecer
+    nos cabeçalhos reais da resposta.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/crlf_inject.py https://example.com/page
@@ -1364,6 +1370,11 @@ TABLE OF CONTENTS · ÍNDICE
     # Cenário 1 — teste base de CRLF num URL com parâmetro de redirect
     $ tools/crlf_inject.py https://example.com/login?next=/dashboard \
         --lang pt
+    Output esperado (truncado):
+        Alvo: https://example.com/login?next=/dashboard
+        Testes executados: 16  (8 payloads × 2 pontos de injeção)
+
+        Nenhuma injeção CRLF detetada com os payloads tentados.
 
     # Cenário 2 — aplicação vulnerável (output de finding)
         Injeção CRLF encontrada (1):
@@ -1395,8 +1406,9 @@ TABLE OF CONTENTS · ÍNDICE
     - Só um cabeçalho canary confirmado na resposta conta como finding.
       Sem canary = sem finding, mesmo que o servidor se tenha comportado
       de forma estranha.
-    - Injeção CRLF via parâmetros de query é mais comum em frameworks
-      antigos que refletem o destino de redirect num header Location.
+    - Os payloads com dupla codificação (%250d%250a) apanham backends
+      atrás de proxy/WAF que só faz decode uma vez; o backend vê %0d%0a
+      depois de um decode e divide a resposta.
     - Combina com open_redirect: servidor vulnerável a ambos tem risco
       mais elevado.
 
@@ -1637,6 +1649,140 @@ TABLE OF CONTENTS · ÍNDICE
     - Confirma sempre com o HTTP Request Smuggler do Burp Suite antes
       de reportar. Deteção por timing é um ponto de partida, não uma prova.
 
+--------------------------------------------------------------------------------
+1.14 xxe_probe.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Probe for XML External Entity (XXE) injection. POSTs crafted XML to
+    an endpoint and checks responses for evidence of file disclosure or
+    SSRF. Tests 6 payloads across 3 techniques: classic entity injection
+    (file:///etc/passwd, C:/Windows/win.ini), SSRF via external entity
+    (AWS IMDSv1, GCP metadata), XInclude file read (bypasses DOCTYPE
+    filtering), and blind SSRF via parameter entity (timing side-channel
+    when no in-band output is possible). Proxy-aware: use --proxy to
+    route through Burp Suite for full request/response inspection.
+
+[EN] QUICK START
+    $ tools/xxe_probe.py https://example.com/api/parse
+
+[EN] EXAMPLES
+    # Scenario 1 — baseline probe on a REST endpoint that accepts XML
+    $ tools/xxe_probe.py https://example.com/api/parse
+    Expected output (truncated):
+        Target: https://example.com/api/parse
+        Content-Type: application/xml  |  baseline: 0.12s  |  Tests run: 6
+
+        No XXE injection detected with the payloads tried.
+
+    # Scenario 2 — confirmed file read finding on a vulnerable parser
+        XXE injection found (1):
+
+          ✗ File read — file:///etc/passwd
+             Technique: entity
+             Evidence: Response contained: 'root:x:0:0:'
+             Status: Confirmed (signature match)
+             Risk: XXE allows reading local files (e.g. /etc/passwd, ...
+             Fix:  Disable external entity processing in the XML parser. ...
+
+    # Scenario 3 — Burp Suite integration for manual follow-up
+    $ tools/xxe_probe.py https://example.com/api \
+          --proxy http://127.0.0.1:8080 --content-type text/xml --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --content-type CT   Content-Type header when posting. Default:
+                        application/xml. Try text/xml for SOAP endpoints.
+    --timeout SECS      Per-request timeout. Default: 10. Increase to 20+
+                        for timing side-channel accuracy.
+    --proxy URL         Route through a proxy (e.g. http://127.0.0.1:8080).
+
+[EN] EXIT CODES
+    0  No XXE detected
+    1  One or more injection points confirmed or suspected (timing)
+    2  Bad URL / usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - The XInclude payload (1.14) is the most useful when a WAF strips
+      DOCTYPE declarations — XInclude uses a namespace instead and often
+      slips through basic filters.
+    - Timing detection for the parameter entity payload requires the
+      server to actually attempt outbound connection to 169.254.169.254.
+      In non-cloud environments the link-local IP is not routable and
+      the connection fails fast — no timing signal. Raise --timeout to
+      20s for better accuracy.
+    - Pair with ssrf_probe if you see SSRF evidence: xxe_probe tests
+      the XML parsing layer; ssrf_probe tests URL parameter reflection.
+    - A 200 OK with empty or error body can still mean XXE was parsed but
+      the result wasn't reflected. In that case, use --proxy and inspect
+      the raw request/response manually in Burp.
+
+[PT] PROPÓSITO
+    Pesquisa injeção de XML External Entity (XXE). Faz POST com XML
+    crafted para um endpoint e verifica respostas por evidência de
+    divulgação de ficheiros ou SSRF. Testa 6 payloads em 3 técnicas:
+    injeção clássica de entidade (file:///etc/passwd,
+    C:/Windows/win.ini), SSRF via entidade externa (AWS IMDSv1,
+    metadata GCP), leitura de ficheiro via XInclude (contorna filtros
+    DOCTYPE), e SSRF cego via entidade de parâmetro (side-channel de
+    temporização quando não há output in-band). Compatível com proxy:
+    usa --proxy para encaminhar pelo Burp Suite.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/xxe_probe.py https://example.com/api/parse
+
+[PT] EXEMPLOS
+    # Cenário 1 — probe base num endpoint REST que aceita XML
+    $ tools/xxe_probe.py https://example.com/api/parse
+    Output esperado (truncado):
+        Alvo: https://example.com/api/parse
+        Content-Type: application/xml  |  baseline: 0.12s  |  Testes: 6
+
+        Nenhuma injeção XXE detetada com os payloads tentados.
+
+    # Cenário 2 — finding confirmado de leitura de ficheiro
+        Injeção XXE encontrada (1):
+
+          ✗ File read — file:///etc/passwd
+             Técnica: entity
+             Evidência: Response contained: 'root:x:0:0:'
+             Status: Confirmado (correspondência de assinatura)
+             Risco: XXE permite ler ficheiros locais (ex: /etc/passwd ...
+             Correção: Desativa o processamento de entidades externas ...
+
+    # Cenário 3 — integração com Burp Suite para análise manual
+    $ tools/xxe_probe.py https://example.com/api \
+          --proxy http://127.0.0.1:8080 --content-type text/xml --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --content-type CT   Content-Type ao fazer POST. Por omissão:
+                        application/xml. Usa text/xml para endpoints SOAP.
+    --timeout SEGUNDOS  Timeout por pedido. Por omissão: 10. Aumenta para
+                        20+ para melhor precisão no side-channel temporal.
+    --proxy URL         Encaminha pelo proxy (ex: http://127.0.0.1:8080).
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhuma XXE detetada
+    1  Um ou mais pontos de injeção confirmados ou suspeitos (timing)
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - O payload XInclude é o mais útil quando um WAF remove declarações
+      DOCTYPE — o XInclude usa um namespace e passa frequentemente em
+      filtros básicos.
+    - A deteção temporal para a entidade de parâmetro requer que o
+      servidor tente ligar a 169.254.169.254. Em ambientes não-cloud,
+      o IP link-local não é encaminhável e a ligação falha rapidamente
+      — sem sinal de temporização. Aumenta --timeout para 20s.
+    - Combina com ssrf_probe se vires evidência de SSRF: xxe_probe testa
+      a camada de parsing XML; ssrf_probe testa reflexo de parâmetros URL.
+    - Um 200 OK com body vazio ou de erro ainda pode significar que o XXE
+      foi processado mas o resultado não foi refletido. Nesse caso usa
+      --proxy e inspeciona manualmente no Burp.
+
 ================================================================================
 2. DNS & NETWORK
 ================================================================================
@@ -1761,12 +1907,12 @@ TABLE OF CONTENTS · ÍNDICE
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
-    Enumerate subdomains of a base domain. Queries crt.sh (Certificate
-    Transparency logs) JSON API for every cert issued to anything under
-    *.example.com. Optionally brute-forces a wordlist (27 built-in
-    entries; supply your own with --wordlist for serious recon). All
-    candidates are DNS-resolved in parallel with per-thread jitter to
-    avoid hammering the resolver.
+    Enumerate subdomains of a base domain. Three passive sources:
+    crt.sh (Certificate Transparency logs), HackerTarget hostsearch
+    (free, no API key) and optionally brute-forces a wordlist (27
+    built-in entries; supply your own with --wordlist for serious
+    recon). All candidates are DNS-resolved in parallel with per-thread
+    jitter to avoid hammering the resolver.
 
 [EN] QUICK START
     $ tools/subfinder.py example.com
@@ -1775,35 +1921,37 @@ TABLE OF CONTENTS · ÍNDICE
     # Scenario 1 — quick subdomain map for bug bounty recon
     $ tools/subfinder.py target.example
     Expected output (truncated):
+        Querying crt.sh...
+        Querying HackerTarget...
         Domain: target.example
-        Querying crt.sh... 142 unique candidates
-        Brute-forcing wordlist... 27 candidates
-        Resolved (89 unique):
-          api.target.example          → 198.51.100.10
-          dev.target.example          → 198.51.100.20
-          mail.target.example         → 198.51.100.30
+
+        Resolved subdomains (89):
+          api.target.example    [crt.sh]        198.51.100.10
+          dev.target.example    [hackertarget]  198.51.100.20
+          mail.target.example   [crt.sh]        198.51.100.30
           ...
-          staging.target.example      → 198.51.100.50  [! '-staging' in name]
+        Total unique resolved: 89  (Skipped: 54)
 
     # Scenario 2 — serious recon with a big wordlist
     $ tools/subfinder.py target.example \
           --wordlist /usr/share/wordlists/subdomains-top1million.txt \
           --threads 20 --jitter 0.3
 
-    # Scenario 3 — only CT logs, no brute-force
+    # Scenario 3 — only passive sources, no brute-force
     $ tools/subfinder.py example.com --skip-bruteforce --json
 
     # Scenario 4 — only wordlist (CT logs sometimes lag)
-    $ tools/subfinder.py example.com --skip-crtsh
+    $ tools/subfinder.py example.com --skip-crtsh --skip-hackertarget
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
-    --wordlist FILE      Path to a wordlist. Default: built-in 27 entries.
-    --threads N          Parallel DNS resolutions. Default 10.
-    --jitter SECONDS     Per-thread random sleep before each query.
-    --skip-crtsh         Skip the crt.sh phase.
-    --skip-bruteforce    Skip the wordlist brute-force phase.
-    --timeout SECONDS    Per-resolution timeout. Default 10.
+    --wordlist FILE         Path to a wordlist. Default: built-in 27.
+    --threads N             Parallel DNS resolutions. Default 10.
+    --jitter SECONDS        Per-thread random sleep before each query.
+    --skip-crtsh            Skip the crt.sh phase.
+    --skip-hackertarget     Skip the HackerTarget API query.
+    --skip-bruteforce       Skip the wordlist brute-force phase.
+    --timeout SECONDS       Per-HTTP-request timeout. Default 30.
 
 [EN] EXIT CODES
     0  Enumeration complete (whether or not subdomains found)
@@ -1811,20 +1959,21 @@ TABLE OF CONTENTS · ÍNDICE
     3  Network error (crt.sh down or DNS broken)
 
 [EN] TIPS
-    - crt.sh sometimes returns 502 / 504. Retry, or fall back to
-      --skip-crtsh.
+    - crt.sh sometimes returns 502 / 504. Retry, or use --skip-crtsh.
+    - HackerTarget free tier is rate-limited; on repeated runs use
+      --skip-hackertarget to rely on crt.sh + wordlist only.
     - Feed the resolved list into recon.py for a deeper sweep:
         tools/subfinder.py example.com --json | jq -r '.resolved[].host'
     - For aggressive scanning, lower --jitter to 0 but expect to be
       rate-limited by the resolver. Use a recursive resolver you own.
 
 [PT] PROPÓSITO
-    Enumera subdomínios de um domínio base. Consulta a API JSON do crt.sh
-    (logs de Certificate Transparency) por cada certificado emitido para
-    qualquer *.example.com. Opcionalmente faz brute-force com uma
-    wordlist (27 entradas embutidas; usa a tua com --wordlist para recon
-    a sério). Todos os candidatos são resolvidos por DNS em paralelo com
-    jitter por thread para não martelar o resolver.
+    Enumera subdomínios de um domínio base. Três fontes passivas:
+    crt.sh (logs de Certificate Transparency), HackerTarget hostsearch
+    (gratuito, sem chave de API) e opcionalmente faz brute-force com
+    uma wordlist (27 entradas embutidas; usa a tua com --wordlist para
+    recon a sério). Todos os candidatos são resolvidos por DNS em
+    paralelo com jitter por thread para não martelar o resolver.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/subfinder.py example.com
@@ -1833,35 +1982,37 @@ TABLE OF CONTENTS · ÍNDICE
     # Cenário 1 — mapa rápido de subdomínios para bug bounty recon
     $ tools/subfinder.py target.example
     Output esperado (truncado):
+        A consultar crt.sh...
+        A consultar HackerTarget...
         Domínio: target.example
-        A consultar crt.sh... 142 candidatos únicos
-        Brute-force com wordlist... 27 candidatos
-        Resolvidos (89 únicos):
-          api.target.example          → 198.51.100.10
-          dev.target.example          → 198.51.100.20
-          mail.target.example         → 198.51.100.30
+
+        Subdomínios resolvidos (89):
+          api.target.example    [crt.sh]        198.51.100.10
+          dev.target.example    [hackertarget]  198.51.100.20
+          mail.target.example   [crt.sh]        198.51.100.30
           ...
-          staging.target.example      → 198.51.100.50  [! '-staging' no nome]
+        Total único resolvido: 89  (Ignorados: 54)
 
     # Cenário 2 — recon sério com wordlist grande
     $ tools/subfinder.py target.example \
           --wordlist /usr/share/wordlists/subdomains-top1million.txt \
           --threads 20 --jitter 0.3
 
-    # Cenário 3 — apenas logs CT, sem brute-force
+    # Cenário 3 — apenas fontes passivas, sem brute-force
     $ tools/subfinder.py example.com --skip-bruteforce --json
 
     # Cenário 4 — apenas wordlist (logs CT às vezes atrasam-se)
-    $ tools/subfinder.py example.com --skip-crtsh
+    $ tools/subfinder.py example.com --skip-crtsh --skip-hackertarget
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
-    --wordlist FICHEIRO  Caminho para uma wordlist. Por omissão: 27 entradas.
-    --threads N          Resoluções DNS paralelas. Por omissão 10.
-    --jitter SEGUNDOS    Sleep aleatório por thread antes de cada query.
-    --skip-crtsh         Salta a fase do crt.sh.
-    --skip-bruteforce    Salta a fase de brute-force com wordlist.
-    --timeout SEGUNDOS   Timeout por resolução. Por omissão 10.
+    --wordlist FICHEIRO     Caminho para wordlist. Por omissão: 27 entradas.
+    --threads N             Resoluções DNS paralelas. Por omissão 10.
+    --jitter SEGUNDOS       Sleep aleatório por thread antes de cada query.
+    --skip-crtsh            Salta a fase do crt.sh.
+    --skip-hackertarget     Salta a consulta ao HackerTarget.
+    --skip-bruteforce       Salta a fase de brute-force com wordlist.
+    --timeout SEGUNDOS      Timeout por pedido HTTP. Por omissão 30.
 
 [PT] CÓDIGOS DE SAÍDA
     0  Enumeração completa (com ou sem subdomínios encontrados)
@@ -1871,6 +2022,8 @@ TABLE OF CONTENTS · ÍNDICE
 [PT] DICAS
     - crt.sh às vezes devolve 502 / 504. Tenta de novo, ou usa
       --skip-crtsh.
+    - O tier gratuito do HackerTarget é limitado em taxa; em execuções
+      repetidas usa --skip-hackertarget para confiar em crt.sh + wordlist.
     - Alimenta a lista resolvida ao recon.py para um sweep mais profundo:
         tools/subfinder.py example.com --json | jq -r '.resolved[].host'
     - Para scanning agressivo, baixa o --jitter para 0 mas conta com ser
@@ -2895,11 +3048,12 @@ TABLE OF CONTENTS · ÍNDICE
 --------------------------------------------------------------------------------
 
 [EN] PURPOSE
-    Auto-detect and decode common encodings: Base64, Base32, hex, URL
-    percent-encoding, binary (0/1 strings), ROT13. Useful when a CTF
-    drops a suspicious string in your lap or you see a payload in HTTP
-    traffic. `--cascade` recursively decodes until the result stops
-    looking encoded (e.g. Base64 of Base64 of hex → final plaintext).
+    Auto-detect and decode common encodings: Base64, Base32, Base85,
+    hex, URL percent-encoding, HTML entities, Unicode escapes (\uXXXX,
+    \u{XXXX}, \xXX), binary (0/1 strings), and ROT13. Useful when a
+    CTF drops a suspicious string in your lap or you see a payload in
+    HTTP traffic. `--cascade` recursively decodes until the result
+    stops looking encoded (e.g. Base64 of Base64 of hex → plaintext).
 
 [EN] QUICK START
     $ tools/multidecode.py "SGVsbG8gd29ybGQh"
@@ -2908,26 +3062,36 @@ TABLE OF CONTENTS · ÍNDICE
     # Scenario 1 — single Base64
     $ tools/multidecode.py "SGVsbG8gd29ybGQh"
     Expected output:
-        Tried: Base64 → "Hello world!"  ✓ readable
-               Base32 → (invalid alphabet)
-               hex    → (odd length)
-               URL    → "SGVsbG8gd29ybGQh"  (no change)
-               binary → (non-binary char)
-               ROT13  → "FUiyy0 dbeyq!"     (not readable)
+        Input: 'SGVsbG8gd29ybGQh' (length: 16)
 
-    # Scenario 2 — URL-encoded path
-    $ tools/multidecode.py "%2Fetc%2Fpasswd" --lang pt
+        Decodings that produced readable output:
 
-    # Scenario 3 — hex from stdin (e.g. from xxd)
-    $ echo -n "48656c6c6f" | tools/multidecode.py -
+          [Base64]
+            'Hello world!'
+
+    # Scenario 2 — Unicode escape payload from a JS source
+    $ tools/multidecode.py '\x48\x65\x6c\x6c\x6f'
+    Expected output:
+        [Unicode Escapes]
+          'Hello'
+
+    # Scenario 3 — Base85 (common in PDF / PostScript)
+    $ python3 -c "import base64; print(base64.b85encode(b'Hello World').decode())"
+    NM&qnZy;B1a%^M
+    $ tools/multidecode.py "NM&qnZy;B1a%^M"
+    Expected output:
+        [Base85]
+          'Hello World'
 
     # Scenario 4 — nested encoding (Base64 of Base64)
     $ tools/multidecode.py "VkdobElHSnliM2R1SUdadmVB" --cascade
-    Expected output: Base64 → Base64 → "The brown fox"
+    Expected output: [depth 1] Base64 → [depth 2] Base64 → "The brown fox"
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version):
     --cascade           Recursively decode until nothing changes.
+                        ROT13 is excluded from cascade (it is its own
+                        inverse and would loop).
 
 [EN] EXIT CODES
     0  At least one decoding succeeded
@@ -2938,18 +3102,21 @@ TABLE OF CONTENTS · ÍNDICE
     - The "readable" check is heuristic (≥ 90% ASCII printable). Binary
       payloads that happen to be valid Base64 of binary will not be
       flagged readable — that's expected.
+    - Unicode escapes (\uXXXX) are common in obfuscated JS payloads
+      from XSS challenges and DOM-based injection.
+    - Base85 appears in PDF streams and some binary-over-text transports.
+      If you see 5-char blocks of printable ASCII, try Base85 first.
     - For ambiguous strings, look at the output of all candidates, not
       just the readable ones. Sometimes the answer is in ROT13 of a
       Base64-looking string.
-    - `--cascade` will not detect cycles; if you suspect an infinite
-      loop, run without --cascade and decode manually one step at a time.
 
 [PT] PROPÓSITO
-    Auto-deteta e decodifica encodings comuns: Base64, Base32, hex, URL
-    percent-encoding, binário (strings 0/1), ROT13. Útil quando um CTF
+    Auto-deteta e decodifica encodings comuns: Base64, Base32, Base85,
+    hex, URL percent-encoding, HTML entities, escapes Unicode (\uXXXX,
+    \u{XXXX}, \xXX), binário (strings 0/1) e ROT13. Útil quando um CTF
     te deixa cair uma string suspeita ou vês um payload em tráfego
     HTTP. `--cascade` decodifica recursivamente até o resultado deixar
-    de parecer encoded (ex: Base64 de Base64 de hex → texto claro final).
+    de parecer encoded (ex: Base64 de Base64 de hex → texto claro).
 
 [PT] ARRANQUE RÁPIDO
     $ tools/multidecode.py "SGVsbG8gd29ybGQh"
@@ -2958,26 +3125,35 @@ TABLE OF CONTENTS · ÍNDICE
     # Cenário 1 — Base64 simples
     $ tools/multidecode.py "SGVsbG8gd29ybGQh"
     Output esperado:
-        Testados: Base64 → "Hello world!"  ✓ legível
-                  Base32 → (alfabeto inválido)
-                  hex    → (comprimento ímpar)
-                  URL    → "SGVsbG8gd29ybGQh"  (sem alteração)
-                  binário → (caracter não binário)
-                  ROT13  → "FUiyy0 dbeyq!"     (não legível)
+        Entrada: 'SGVsbG8gd29ybGQh' (tamanho: 16)
 
-    # Cenário 2 — caminho URL-encoded
-    $ tools/multidecode.py "%2Fetc%2Fpasswd" --lang pt
+        Descodificações que produziram texto legível:
 
-    # Cenário 3 — hex de stdin (ex: do xxd)
-    $ echo -n "48656c6c6f" | tools/multidecode.py -
+          [Base64]
+            'Hello world!'
+
+    # Cenário 2 — payload com escapes Unicode de uma fonte JS
+    $ tools/multidecode.py '\x48\x65\x6c\x6c\x6f'
+    Output esperado:
+        [Unicode Escapes]
+          'Hello'
+
+    # Cenário 3 — Base85 (comum em PDF / PostScript)
+    $ tools/multidecode.py "NM&qnZy;B1a%^M"
+    Output esperado:
+        [Base85]
+          'Hello World'
 
     # Cenário 4 — encoding aninhado (Base64 de Base64)
     $ tools/multidecode.py "VkdobElHSnliM2R1SUdadmVB" --cascade
-    Output esperado: Base64 → Base64 → "The brown fox"
+    Output esperado: [profundidade 1] Base64 → [profundidade 2] Base64
+                     → "The brown fox"
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version):
     --cascade           Decodifica recursivamente até nada mudar.
+                        ROT13 é excluído da cascata (é o seu próprio
+                        inverso e entraria em ciclo).
 
 [PT] CÓDIGOS DE SAÍDA
     0  Pelo menos uma decodificação foi bem-sucedida
@@ -2988,11 +3164,14 @@ TABLE OF CONTENTS · ÍNDICE
     - O teste de "legibilidade" é heurístico (≥ 90% ASCII imprimível).
       Payloads binários que sejam Base64 válido de binário não serão
       assinalados como legíveis — é esperado.
+    - Os escapes Unicode (\uXXXX) são comuns em payloads JS ofuscados
+      de desafios XSS e injeção DOM.
+    - Base85 aparece em streams PDF e alguns transportes binary-over-text.
+      Se vires blocos de 5 caracteres ASCII imprimíveis, tenta Base85
+      primeiro.
     - Para strings ambíguas, olha para o output de todos os candidatos,
       não só os legíveis. Às vezes a resposta está em ROT13 de uma
       string que parece Base64.
-    - `--cascade` não deteta ciclos; se suspeitas de loop infinito,
-      corre sem --cascade e decodifica manualmente passo a passo.
 
 --------------------------------------------------------------------------------
 6.2 xor_crack.py

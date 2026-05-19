@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 continued — 25 tool improvements + 5 further enhancements; tool count unchanged at 32).
+Last updated: 2026-05-19 (Session 4 continued — 25 improvements + Option A/B: 3 tools enhanced + xxe_probe added; total 33 tools).
 
 ---
 
@@ -110,13 +110,13 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 |------|--------------|
 | `new_writeup.py` | Generate writeup skeleton (Chirpy frontmatter + standard sections) |
 | `check_headers.py` | 9 security headers + info disclosure + redirect-chain detection |
-| `multidecode.py` | Auto-detect Base64/Base32/hex/URL/binary/ROT13 + `--cascade` |
+| `multidecode.py` | Auto-detect Base64/Base32/Base85/hex/URL/Unicode escapes/binary/ROT13 + `--cascade` |
 | `robots_check.py` | Parse `/robots.txt` + `/sitemap.xml`, highlight interesting paths |
 | `hashid.py` | Identify ~25 hash types with confidence + hashcat modes |
 | `tls_inspect.py` | Cert info + accepted-TLS-version enumeration + weak-version flags |
 | `jwt_inspect.py` | Decode JWTs, flag `alg:none`/unknown alg/expired/nbf-future/missing claims |
 | `cors_check.py` | Probes with attacker/null/prefix/suffix origins, GET + OPTIONS preflight |
-| `subfinder.py` | crt.sh + wordlist + rate-limited parallel DNS resolution |
+| `subfinder.py` | crt.sh + HackerTarget + wordlist + rate-limited parallel DNS resolution |
 | `htb_stats.py` | HackTheBox badge markdown; profile stats with `HTB_TOKEN` |
 | `header_diff.py` | Snapshot + diff security headers over time |
 | `http_methods.py` | Test allowed HTTP methods, flag TRACE/CONNECT/destructive 2xx |
@@ -137,9 +137,10 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `file_hash.py` | Forensic file hashing (MD5/SHA, manifests, chain-of-custody) |
 | `open_redirect.py` | Open redirect probe: 8 payloads × 28 params (URL params + 24 common names) |
 | `param_miner.py` | Hidden parameter discovery: 278-name wordlist, baseline delta + reflection |
-| `crlf_inject.py` | CRLF injection / HTTP response splitting (http.client raw, canary-header confirmed) |
+| `crlf_inject.py` | CRLF injection / HTTP response splitting (http.client raw, canary-header confirmed, 8 payload variants incl. double-encoded) |
 | `ssrf_probe.py` | SSRF probe: 22 internal payloads (AWS IMDSv1, GCP, Azure, localhost:ports) |
 | `http_smuggling_probe.py` | HTTP/1.1 request smuggling CL.TE / TE.CL via raw socket timing side-channel |
+| `xxe_probe.py` | XXE injection probe: entity file read + SSRF + XInclude + param-entity timing (33 total) |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.
