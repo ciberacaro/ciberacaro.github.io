@@ -75,7 +75,11 @@ TABLE OF CONTENTS · ÍNDICE
      1.6 header_diff.py         Snapshot + diff headers over time
      1.7 tech_fingerprint.py    Wappalyzer-lite (server, CMS, framework)
      1.8 path_scan.py           Wordlist-based path/directory discovery
-     1.9 open_redirect.py       Open redirect vulnerability probe
+     1.9  open_redirect.py       Open redirect vulnerability probe
+     1.10 param_miner.py         Hidden parameter discovery via wordlist fuzzing
+     1.11 crlf_inject.py         HTTP response splitting / CRLF injection probe
+     1.12 ssrf_probe.py          Server-Side Request Forgery (SSRF) probe
+     1.13 http_smuggling_probe.py HTTP/1.1 request smuggling (CL.TE / TE.CL)
 
   2. DNS & NETWORK
      2.1 dns_records.py         A/AAAA/MX/NS/TXT/CAA + SPF/DMARC + AXFR
@@ -118,7 +122,8 @@ TABLE OF CONTENTS · ÍNDICE
 1. WEB RECONNAISSANCE
 ================================================================================
    [check_headers, cookie_check, cors_check, http_methods, robots_check,
-    header_diff, tech_fingerprint, path_scan, open_redirect]
+    header_diff, tech_fingerprint, path_scan, open_redirect, param_miner,
+    crlf_inject, ssrf_probe, http_smuggling_probe]
 
 --------------------------------------------------------------------------------
 1.1 check_headers.py
@@ -1132,6 +1137,473 @@ TABLE OF CONTENTS · ÍNDICE
       impacto dramaticamente.
     - A ferramenta testa só GET. Para redirects baseados em POST (formulários
       de login), usa curl ou Burp Suite.
+
+--------------------------------------------------------------------------------
+1.10 param_miner.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Discover hidden or undocumented query parameters by fuzzing a wordlist
+    of 278 common parameter names against a target URL. Establishes a
+    response baseline (HTTP status + body length), then probes each name
+    with a canary value and flags any parameter that produces a measurable
+    difference: status code change, body length delta >= threshold, or the
+    parameter value reflected in the response body. Useful for surfacing
+    cache-poisoning vectors, mass-assignment bugs, internal feature flags,
+    and forgotten debug parameters.
+
+[EN] QUICK START
+    $ tools/param_miner.py https://api.example.com/users
+
+[EN] EXAMPLES
+    # Scenario 1 — basic parameter discovery on a REST endpoint
+    $ tools/param_miner.py https://api.example.com/users
+    Expected output (truncated):
+        Target: https://api.example.com/users
+        Parameters tested: 278
+        Baseline status: 200  |  Baseline response length: 1432 bytes
+
+        Hidden parameters found (2):
+
+          ✗ Parameter 'debug' detected
+             Status changed: 200 → 200
+             Length delta: 1432 → 2817 bytes (+1385)
+             Risk: Hidden parameters may indicate overlooked functionality ...
+             Fix:  Document all parameters your API accepts ...
+
+    # Scenario 2 — raise the threshold to cut noise on a chatty endpoint
+    $ tools/param_miner.py https://api.example.com/users --threshold 50
+
+    # Scenario 3 — JSON output for pipeline use
+    $ tools/param_miner.py https://api.example.com/users --json | \
+        jq '.findings[] | {param, status, length}'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --threshold BYTES   Minimum body length delta to flag. Default: 5.
+                        Raise to 20-50 on endpoints with dynamic content.
+    --threads N         Concurrent probes. Default: 10.
+    --timeout SECS      Per-request timeout. Default: 10.
+
+[EN] EXIT CODES
+    0  No parameters detected beyond baseline
+    1  One or more hidden parameters found
+    2  Bad URL format or usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - A length delta alone is weak evidence — verify manually that the
+      delta persists on a second request (it may be dynamic content).
+    - Reflected parameters (value appears in the body) are stronger signal
+      and often point to mass-assignment or template-injection.
+    - Combine with cors_check: a parameter that changes the response may
+      also change CORS behaviour.
+    - Default threshold of 5 bytes is sensitive but noisy on pages with
+      timestamps or anti-CSRF tokens in the body. Raise to 50+ for those.
+
+[PT] PROPÓSITO
+    Descobre parâmetros de query ocultos ou não documentados testando
+    uma wordlist de 278 nomes comuns contra um URL alvo. Estabelece uma
+    baseline de resposta (status HTTP + tamanho do body), depois sonda
+    cada nome com um valor canary e sinaliza qualquer parâmetro que
+    produza uma diferença medível: mudança de status code, delta de
+    tamanho >= limiar, ou o valor do parâmetro refletido no body.
+    Útil para surfacing de vetores de cache poisoning, bugs de
+    mass-assignment, feature flags internas, e parâmetros de debug
+    esquecidos.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/param_miner.py https://api.example.com/users
+
+[PT] EXEMPLOS
+    # Cenário 1 — descoberta básica de parâmetros num endpoint REST
+    $ tools/param_miner.py https://api.example.com/users --lang pt
+    Output esperado (truncado):
+        Alvo: https://api.example.com/users
+        Parâmetros testados: 278
+        Status da baseline: 200  |  Tamanho da resposta baseline: 1432 bytes
+
+        Parâmetros ocultos encontrados (2):
+
+          ✗ Parâmetro 'debug' detetado
+             Status alterou: 200 → 200
+             Delta de tamanho: 1432 → 2817 bytes (+1385)
+
+    # Cenário 2 — elevar o limiar para reduzir ruído
+    $ tools/param_miner.py https://api.example.com/users --threshold 50 \
+        --lang pt
+
+    # Cenário 3 — JSON para pipeline
+    $ tools/param_miner.py https://api.example.com/users --json | \
+        jq '.findings[] | {param, status, length}'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --threshold BYTES   Delta mínimo de tamanho do body para sinalizar.
+                        Por omissão: 5. Eleva para 20-50 em endpoints com
+                        conteúdo dinâmico.
+    --threads N         Probes concorrentes. Por omissão: 10.
+    --timeout SEGUNDOS  Timeout por pedido. Por omissão: 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhum parâmetro detetado além da baseline
+    1  Um ou mais parâmetros ocultos encontrados
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - Um delta de tamanho sozinho é evidência fraca — verifica manualmente
+      que o delta persiste num segundo pedido (pode ser conteúdo dinâmico).
+    - Parâmetros refletidos (valor aparece no body) são sinal mais forte
+      e apontam frequentemente para mass-assignment ou template injection.
+    - Combina com cors_check: um parâmetro que muda a resposta pode também
+      mudar o comportamento CORS.
+
+--------------------------------------------------------------------------------
+1.11 crlf_inject.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Test for HTTP response splitting via CRLF injection. Uses http.client
+    directly (bypassing urllib's URL encoding) so that CRLF sequences
+    (%0d%0a, %0a, %0D%0A, Unicode CRLF) reach the server raw. Injects
+    payloads into the URL path and query parameters; confirms a finding
+    only if the canary header (X-Crlf-Test: injected) appears in the
+    server's actual response headers. This avoids the false positives
+    that naive CRLF scanners produce by checking for Set-Cookie headers
+    that are unrelated to the injection.
+
+[EN] QUICK START
+    $ tools/crlf_inject.py https://example.com/page
+
+[EN] EXAMPLES
+    # Scenario 1 — baseline CRLF test on a URL with a redirect param
+    $ tools/crlf_inject.py https://example.com/login?next=/dashboard
+    Expected output (truncated):
+        Target: https://example.com/login?next=/dashboard
+        Tests run: 10  (5 payloads × 2 injection points)
+
+        No CRLF injection detected with the payloads tried.
+
+    # Scenario 2 — vulnerable application (finding output)
+        CRLF injection found (1):
+
+          ✗ CRLF injection confirmed at URL path with payload:
+               CR+LF percent-encoded (%0d%0a)
+             Injection point: URL path
+             Payload: %0d%0aX-Crlf-Test:%20injected
+             Canary header in response: X-Crlf-Test: injected
+             Risk: HTTP response splitting allows an attacker ...
+             Fix:  Strip or reject CR and LF characters ...
+
+    # Scenario 3 — JSON for pipeline
+    $ tools/crlf_inject.py https://example.com/page --json | \
+        jq '.findings[] | {injection_point, payload}'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --timeout SECS   Per-request timeout. Default: 10.
+
+[EN] EXIT CODES
+    0  No CRLF injection detected
+    1  Injection confirmed (canary header in response)
+    2  Bad URL format or usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - Only a confirmed canary header in the response counts as a finding.
+      No canary = no finding, even if the server behaved oddly.
+    - CRLF injection via query params is more common in older frameworks
+      that reflect the redirect destination back in a Location header.
+    - If you see the finding in the path but not the query (or vice versa),
+      the injection point tells you where the server is placing user input.
+    - Pair with open_redirect: a server vulnerable to both is at higher
+      risk (attacker can craft a URL that both redirects and injects headers).
+
+[PT] PROPÓSITO
+    Testa injeção CRLF (HTTP response splitting). Usa http.client
+    diretamente (evitando o URL encoding do urllib) para que as
+    sequências CRLF (%0d%0a, %0a, %0D%0A, CRLF Unicode) cheguem ao
+    servidor sem alterar. Injeta payloads no path e nos parâmetros de
+    query; confirma um finding só se o cabeçalho canary
+    (X-Crlf-Test: injected) aparecer nos cabeçalhos reais da resposta.
+    Evita os falsos positivos que scanners CRLF ingénuos produzem ao
+    verificar Set-Cookie não relacionados com a injeção.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/crlf_inject.py https://example.com/page
+
+[PT] EXEMPLOS
+    # Cenário 1 — teste base de CRLF num URL com parâmetro de redirect
+    $ tools/crlf_inject.py https://example.com/login?next=/dashboard \
+        --lang pt
+
+    # Cenário 2 — aplicação vulnerável (output de finding)
+        Injeção CRLF encontrada (1):
+
+          ✗ Injeção CRLF confirmada em URL path com payload:
+               CR+LF percent-encoded (%0d%0a)
+             Ponto de injeção: URL path
+             Payload: %0d%0aX-Crlf-Test:%20injected
+             Cabeçalho canary na resposta: X-Crlf-Test: injected
+
+    # Cenário 3 — JSON para pipeline
+    $ tools/crlf_inject.py https://example.com/page --json | \
+        jq '.findings[] | {injection_point, payload}'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhuma injeção CRLF detetada
+    1  Injeção confirmada (cabeçalho canary na resposta)
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - Só um cabeçalho canary confirmado na resposta conta como finding.
+      Sem canary = sem finding, mesmo que o servidor se tenha comportado
+      de forma estranha.
+    - Injeção CRLF via parâmetros de query é mais comum em frameworks
+      antigos que refletem o destino de redirect num header Location.
+    - Combina com open_redirect: servidor vulnerável a ambos tem risco
+      mais elevado.
+
+--------------------------------------------------------------------------------
+1.12 ssrf_probe.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Probe URL parameters for Server-Side Request Forgery vulnerabilities.
+    Tests 22 internal payloads — localhost/127.0.0.1 on common ports
+    (MySQL 3306, PostgreSQL 5432, Redis 6379, Elasticsearch 9200), IPv6
+    loopback [::1], and cloud metadata endpoints (AWS IMDSv1 at
+    169.254.169.254 with IAM credentials path, GCP metadata.google.internal,
+    Azure, Digital Ocean, Alibaba Cloud) — against URL-accepting parameter
+    names (url, src, redirect, fetch, proxy, image, …). Detection is
+    timing-based: a server that fetches the URL takes longer than baseline.
+
+[EN] QUICK START
+    $ tools/ssrf_probe.py https://example.com/fetch?url=https://target.com
+
+[EN] EXAMPLES
+    # Scenario 1 — API endpoint with explicit url parameter
+    $ tools/ssrf_probe.py https://example.com/fetch?url=https://target.com
+    Expected output (truncated):
+        Target: https://example.com/fetch?url=https://target.com
+        Baseline response time: 0.18s
+
+        Potential SSRF vectors found (1):
+
+          ✗ Potential SSRF: parameter 'url' with payload
+               'http://169.254.169.254/latest/meta-data/'
+             Payload: AWS metadata API endpoint
+             Status: 200
+             Response size: 1743 bytes
+             Timing delta: 2.31s (baseline: 0.18s)
+
+    # Scenario 2 — no existing URL param (tests common names only)
+    $ tools/ssrf_probe.py https://example.com/api/image
+
+    # Scenario 3 — JSON output
+    $ tools/ssrf_probe.py https://example.com/fetch --json | \
+        jq '.findings[] | {param, payload}'
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    --timeout SECS   Per-request timeout. Default: 10. Keep this value
+                     above your expected baseline to avoid false negatives
+                     on slow networks.
+
+[EN] EXIT CODES
+    0  No SSRF evidence detected
+    1  One or more potential SSRF vectors found
+    2  Bad URL format or usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - SSRF via timing is probabilistic — a slow network or CDN edge can
+      produce false positives. Verify by running twice and comparing times.
+    - Cloud metadata endpoints (169.254.169.254) are the highest-value
+      targets: successful SSRF there yields IAM credentials directly.
+    - Some SSRF vulnerabilities only work via POST body, not query params.
+      Use Burp Suite for POST-based SSRF after this tool identifies the
+      candidate parameters.
+    - On modern cloud infrastructure, IMDSv2 (AWS) requires a token header,
+      so IMDSv1 probes may fail even on vulnerable servers. Still worth testing.
+
+[PT] PROPÓSITO
+    Sonda parâmetros de URL à procura de vulnerabilidades SSRF. Testa
+    22 payloads internos — localhost/127.0.0.1 em portas comuns (MySQL
+    3306, PostgreSQL 5432, Redis 6379, Elasticsearch 9200), loopback IPv6
+    [::1], e endpoints de metadata em cloud (AWS IMDSv1 em
+    169.254.169.254 com caminho de credenciais IAM, metadata.google.internal
+    GCP, Azure, Digital Ocean, Alibaba Cloud) — contra nomes de parâmetros
+    que aceitam URLs (url, src, redirect, fetch, proxy, image, …). A
+    deteção é baseada em timing: um servidor que vai buscar o URL demora
+    mais do que a baseline.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/ssrf_probe.py https://example.com/fetch?url=https://target.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — endpoint de API com parâmetro url explícito
+    $ tools/ssrf_probe.py https://example.com/fetch?url=https://target.com \
+        --lang pt
+    Output esperado (truncado):
+        Alvo: https://example.com/fetch?url=https://target.com
+        Tempo da resposta baseline: 0.18s
+
+        Possíveis vetores SSRF encontrados (1):
+
+          ✗ Possível SSRF: parâmetro 'url' com payload
+               'http://169.254.169.254/latest/meta-data/'
+             Timing delta: 2.31s (baseline: 0.18s)
+
+    # Cenário 2 — sem parâmetro URL explícito (testa nomes comuns)
+    $ tools/ssrf_probe.py https://example.com/api/image --lang pt
+
+    # Cenário 3 — JSON para pipeline
+    $ tools/ssrf_probe.py https://example.com/fetch --json | \
+        jq '.findings[] | {param, payload}'
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhuma evidência de SSRF detetada
+    1  Um ou mais vetores SSRF potenciais encontrados
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - SSRF via timing é probabilístico — uma rede lenta ou CDN pode
+      produzir falsos positivos. Verifica correndo duas vezes.
+    - Endpoints de metadata em cloud (169.254.169.254) são os alvos
+      de maior valor: SSRF bem-sucedido aí dá credenciais IAM diretamente.
+    - Alguns SSRF só funcionam via POST body, não query params. Usa
+      Burp Suite para SSRF baseado em POST após esta ferramenta
+      identificar os parâmetros candidatos.
+
+--------------------------------------------------------------------------------
+1.13 http_smuggling_probe.py
+--------------------------------------------------------------------------------
+
+[EN] PURPOSE
+    Detect HTTP/1.1 request smuggling susceptibility via timing side-channel.
+    Sends requests with deliberately contradictory Content-Length and
+    Transfer-Encoding headers using raw sockets (bypassing http.client
+    normalisation). Two probes are sent: CL.TE (body complete under CL
+    but unterminated chunked for TE) and TE.CL (body complete under TE
+    but CL claims more bytes). A vulnerable back-end stalls waiting for
+    bytes that never arrive, producing a measurable delay against a
+    baseline GET. Note: timing-based detection is probabilistic — a
+    confirmed finding should always be verified manually with Burp Suite's
+    HTTP Request Smuggler extension.
+
+[EN] QUICK START
+    $ tools/http_smuggling_probe.py https://example.com
+
+[EN] EXAMPLES
+    # Scenario 1 — basic smuggling probe
+    $ tools/http_smuggling_probe.py https://example.com
+    Expected output (truncated):
+        Target: https://example.com
+        Host: example.com  Port: 443
+        Probes sent: 2 (CL.TE, TE.CL)
+
+        No HTTP smuggling indicators detected.
+
+    # Scenario 2 — potentially vulnerable server
+        Potential HTTP smuggling detected (1):
+
+          ✗ HTTP request smuggling (CL.TE / TE.CL desync)
+             Technique: CL.TE
+             Status: Response delayed 7.2s vs baseline 0.3s.
+                     Back-end likely stalled waiting for chunked terminator.
+             Risk: HTTP request smuggling exploits differences ...
+             Fix:  Ensure front-end and back-end use identical HTTP parsing ...
+
+    # Scenario 3 — JSON output
+    $ tools/http_smuggling_probe.py https://example.com --json
+
+[EN] FLAGS
+    Beyond the universals (--lang, --json, --version, --user-agent):
+    (No additional flags — the tool always runs both CL.TE and TE.CL probes.)
+
+[EN] EXIT CODES
+    0  No smuggling indicators detected
+    1  Potential smuggling detected (timing anomaly)
+    2  Bad URL format or usage error
+    3  Network / DNS / TLS error
+
+[EN] TIPS
+    - The tool uses a 5-second minimum threshold (or 3× baseline) to
+      avoid false positives on slow connections. On a fast network the
+      signal is cleaner; on a slow network raise the threshold expectation.
+    - HTTP/2 is not affected by CL.TE/TE.CL smuggling. If the server
+      negotiates HTTP/2 (ALPN), this tool's probes will not be relevant.
+    - Always confirm with Burp Suite's HTTP Request Smuggler extension
+      before reporting. Timing-based detection is a starting point, not
+      a proof.
+    - Pair with path_scan: some smuggling attacks require specific paths
+      that the back-end processes differently from the front-end.
+
+[PT] PROPÓSITO
+    Deteta susceptibilidade a HTTP request smuggling via timing
+    side-channel. Envia pedidos com cabeçalhos Content-Length e
+    Transfer-Encoding deliberadamente contraditórios usando raw sockets
+    (bypass da normalização do http.client). Dois probes: CL.TE (body
+    completo sob CL mas chunked sem terminador para TE) e TE.CL (body
+    completo sob TE mas CL reclama mais bytes). Um back-end vulnerável
+    fica à espera de bytes que nunca chegam, produzindo um atraso
+    mensurável face a uma baseline GET. Nota: deteção timing-based é
+    probabilística — confirmar sempre manualmente com Burp Suite.
+
+[PT] ARRANQUE RÁPIDO
+    $ tools/http_smuggling_probe.py https://example.com
+
+[PT] EXEMPLOS
+    # Cenário 1 — probe básico de smuggling
+    $ tools/http_smuggling_probe.py https://example.com --lang pt
+    Output esperado (truncado):
+        Alvo: https://example.com
+        Host: example.com  Porto: 443
+        Probes enviadas: 2 (CL.TE, TE.CL)
+
+        Nenhum indicador de HTTP smuggling detetado.
+
+    # Cenário 2 — servidor potencialmente vulnerável
+        Possível HTTP smuggling detetado (1):
+
+          ✗ HTTP request smuggling (desincronização CL.TE / TE.CL)
+             Técnica: CL.TE
+             Estado: Resposta atrasada 7.2s vs baseline 0.3s.
+                     Back-end ficou provavelmente à espera do terminador
+                     chunked.
+
+    # Cenário 3 — JSON
+    $ tools/http_smuggling_probe.py https://example.com --json
+
+[PT] FLAGS
+    Para além das universais (--lang, --json, --version, --user-agent):
+    (Sem flags adicionais — a ferramenta corre sempre ambos os probes.)
+
+[PT] CÓDIGOS DE SAÍDA
+    0  Nenhum indicador de smuggling detetado
+    1  Possível smuggling detetado (anomalia de timing)
+    2  URL inválido ou erro de utilização
+    3  Erro de rede, DNS ou TLS
+
+[PT] DICAS
+    - A ferramenta usa um limiar mínimo de 5s (ou 3× baseline) para
+      evitar falsos positivos em ligações lentas.
+    - HTTP/2 não é afetado por smuggling CL.TE/TE.CL. Se o servidor
+      negocia HTTP/2 (ALPN), os probes desta ferramenta não são relevantes.
+    - Confirma sempre com o HTTP Request Smuggler do Burp Suite antes
+      de reportar. Deteção por timing é um ponto de partida, não uma prova.
 
 ================================================================================
 2. DNS & NETWORK

@@ -204,6 +204,47 @@ tools/open_redirect.py https://example.com/login?next=/dashboard --json
 echo "https://example.com/login?next=/dashboard" | tools/open_redirect.py -
 ```
 
+## `param_miner.py`
+
+Discover hidden or undocumented query parameters by fuzzing a 278-name wordlist against a target URL. Establishes a response baseline (status + body length), then probes each parameter name with a canary value and flags any parameter that causes a measurable difference (status change, body length delta ≥ threshold, or value reflection). Useful for surfacing cache-poisoning vectors, mass-assignment bugs, internal feature flags, and forgotten debug parameters.
+
+```bash
+tools/param_miner.py https://api.example.com/users
+tools/param_miner.py https://api.example.com/users --threshold 20 --threads 20
+tools/param_miner.py https://api.example.com/users --lang pt --json
+echo "https://api.example.com/users" | tools/param_miner.py -
+```
+
+## `crlf_inject.py`
+
+Test for HTTP response splitting (CRLF injection). Uses `http.client` directly — bypassing `urllib`'s URL encoding — to inject CRLF sequences (`%0d%0a`, `%0a`, `%0D%0A`, Unicode CRLF `%E5%98%8A%E5%98%8D`) into the URL path and query parameters. Confirms injection only if the canary header (`X-Crlf-Test: injected`) appears in the server's actual response headers — no false positives from sites that already set cookies.
+
+```bash
+tools/crlf_inject.py https://example.com/page
+tools/crlf_inject.py https://example.com/login?next=/dashboard --lang pt
+tools/crlf_inject.py https://example.com/page --json
+```
+
+## `ssrf_probe.py`
+
+Probe URL parameters for Server-Side Request Forgery. Tests 22 internal payloads (127.0.0.1, AWS IMDSv1 at 169.254.169.254, GCP metadata, Azure, Digital Ocean, common internal IPs/ports) against URL-accepting parameters (`url`, `src`, `redirect`, `fetch`, `proxy`, …). Flags responses where the server took significantly longer than baseline (timing side-channel) or returned an unexpected 200/4xx from an internal address.
+
+```bash
+tools/ssrf_probe.py https://example.com/fetch?url=https://target.com
+tools/ssrf_probe.py https://example.com/api/image --lang pt
+tools/ssrf_probe.py https://example.com/proxy --json
+```
+
+## `http_smuggling_probe.py`
+
+Detect HTTP/1.1 request smuggling susceptibility (CL.TE and TE.CL desync) via timing side-channel. Sends requests with deliberately contradictory `Content-Length` / `Transfer-Encoding` headers using raw sockets (no normalization). A vulnerable back-end stalls waiting for bytes that never arrive, producing a measurable delay against a baseline GET. Reports both technique variants independently.
+
+```bash
+tools/http_smuggling_probe.py https://example.com
+tools/http_smuggling_probe.py https://example.com --lang pt
+tools/http_smuggling_probe.py https://example.com --json
+```
+
 ## `subdomain_takeover.py`
 
 Detect subdomains vulnerable to takeover — where a CNAME points to a third-party service that's no longer registered (forgotten GitHub Pages site, dead Heroku app, abandoned S3 bucket). An attacker can register that orphaned service and serve content under the original domain.

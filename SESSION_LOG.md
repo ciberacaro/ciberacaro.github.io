@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 — open_redirect.py added; tool count 27→28).
+Last updated: 2026-05-19 (Session 4 — 5 active-testing tools added; tool count 27→32).
 
 ---
 
@@ -20,8 +20,8 @@ Last updated: 2026-05-19 (Session 4 — open_redirect.py added; tool count 27→
 
 **What was done:**
 - Researched OWASP Testing Guide, HackTricks, PayloadsAllTheThings, and PortSwigger Web Security Academy to identify gaps in the toolchain. Presented 5 suggestions: `open_redirect`, `param_miner`, `crlf_inject`, `ssrf_probe`, `http_smuggling_probe`.
-- Added `open_redirect.py` (tool #28) — probes for unvalidated redirect vulnerabilities. Injects 8 payloads (https://, protocol-relative //, backslash bypass \/\/, @-trick, etc.) into all query params in the URL **plus** 24 common redirect param names (url, next, redirect, returnTo, goto, dest, callback, …). Reports any param where the server responds 3xx with a Location pointing outside the original host. Uses a `_StopRedirect` urllib handler so redirects are inspected rather than followed.
-- Updated README, HOWTO.txt (entry 1.9 + TOC), SESSION_LOG, CLAUDE.md per the durable four-file rule.
+- Added 5 active vulnerability testing tools (tools #28–32): `open_redirect.py` (8 payloads × 28 params, _StopRedirect handler), `param_miner.py` (278-name wordlist, baseline delta + reflection), `crlf_inject.py` (http.client raw path injection, canary-header confirmed, no false-positive Set-Cookie), `ssrf_probe.py` (22 internal payloads, timing side-channel), `http_smuggling_probe.py` (CL.TE / TE.CL raw socket timing probes). All bugs found in initial draft were corrected before commit (double-encoding in crlf_inject, operator precedence in ssrf_probe, false-positive heuristics in http_smuggling_probe, duplicates in param_miner wordlist).
+- Updated README, HOWTO.txt (entries 1.9–1.13 + TOC + category header), SESSION_LOG, CLAUDE.md per the durable four-file rule.
 
 ---
 
@@ -89,7 +89,7 @@ Captured here because they're not always obvious from the code alone — and bec
 - Timezone: `Europe/Lisbon`
 - Pages live: home, `/categories/`, `/tags/`, `/archives/`, `/about/` (EN), `/sobre/` (PT-PT)
 
-### Toolchain (28 tools in `tools/` + shared `_lib.py`)
+### Toolchain (32 tools in `tools/` + shared `_lib.py`)
 
 All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, uniform `--version`, stdin via `-`, networked tools accept `--user-agent`, exit codes 0/1/2/3.
 
@@ -123,6 +123,10 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `email_forensics.py` | .eml header analysis: SPF/DKIM/DMARC, Received chain, brand impersonation |
 | `file_hash.py` | Forensic file hashing (MD5/SHA, manifests, chain-of-custody) |
 | `open_redirect.py` | Open redirect probe: 8 payloads × 28 params (URL params + 24 common names) |
+| `param_miner.py` | Hidden parameter discovery: 278-name wordlist, baseline delta + reflection |
+| `crlf_inject.py` | CRLF injection / HTTP response splitting (http.client raw, canary-header confirmed) |
+| `ssrf_probe.py` | SSRF probe: 22 internal payloads (AWS IMDSv1, GCP, Azure, localhost:ports) |
+| `http_smuggling_probe.py` | HTTP/1.1 request smuggling CL.TE / TE.CL via raw socket timing side-channel |
 | `_lib.py` | Shared helpers (not a runnable tool) |
 
 Detailed docs: `tools/README.md`.
