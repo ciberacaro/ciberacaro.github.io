@@ -164,7 +164,7 @@ echo "$JWT" | tools/jwt_inspect.py -
 
 ## `cors_check.py`
 
-Probe a URL with several different `Origin` header values (arbitrary attacker, `null`, prefix/suffix tricks, legitimate). For each origin, sends **GET**, **OPTIONS preflight** (with `Access-Control-Request-Method`/`Access-Control-Request-Headers`), and **POST**. Inspects the `Access-Control-Allow-Origin/Credentials/Methods/Headers` responses. Flags reflected arbitrary origins, wildcard + credentials, `null` + credentials, and prefix/suffix-match bugs.
+Probe a URL with several different `Origin` header values (arbitrary attacker, `null`, prefix/suffix tricks, legitimate). For each origin, sends **GET**, **OPTIONS preflight** (with `Access-Control-Request-Method`/`Access-Control-Request-Headers`), and **POST**. Inspects the `Access-Control-Allow-Origin/Credentials/Methods/Headers` responses. Flags: **reflected origin + `ACAC: true`** (critical — full session theft), reflected origin without credentials (medium), wildcard + credentials, `null` + credentials, and prefix/suffix-match bugs.
 
 ```bash
 tools/cors_check.py https://api.example.com/users/me
@@ -216,12 +216,13 @@ echo "https://example.com/login?next=/dashboard" | tools/open_redirect.py -
 
 ## `param_miner.py`
 
-Discover hidden or undocumented query parameters by fuzzing a 278-name wordlist against a target URL. Establishes a response baseline (status + body length), then probes each parameter name with a canary value and flags any parameter that causes a measurable difference (status change, body length delta ≥ threshold, or value reflection). Supports GET (default), POST form-urlencoded, and POST JSON modes. Useful for surfacing cache-poisoning vectors, mass-assignment bugs, internal feature flags, and forgotten debug parameters.
+Discover hidden or undocumented query parameters by fuzzing a 278-name wordlist against a target URL. Establishes a response baseline (status + body length), then probes each parameter name with a canary value and flags any parameter that causes a measurable difference (status change, body length delta ≥ threshold, or value reflection). Supports GET (default), POST form-urlencoded, and POST JSON modes. `--bool-probe` runs a second pass on undetected parameters using `true`/`false` values — catches boolean-gated feature flags that ignore canary strings. Useful for surfacing cache-poisoning vectors, mass-assignment bugs, internal feature flags, and forgotten debug parameters.
 
 ```bash
 tools/param_miner.py https://api.example.com/users
 tools/param_miner.py https://api.example.com/users --threshold 20 --threads 20
 tools/param_miner.py https://api.example.com/users --method post --content-type json
+tools/param_miner.py https://api.example.com/users --bool-probe --lang pt --json
 tools/param_miner.py https://api.example.com/users --wordlist my_params.txt --lang pt --json
 echo "https://api.example.com/users" | tools/param_miner.py -
 ```
@@ -355,11 +356,12 @@ tools/secrets_scan.py --git-history                # scan all commits
 
 ## `recon.py`
 
-Orchestrator: runs `subfinder.py` → for each resolved subdomain, in parallel runs `check_headers.py` + `tls_inspect.py` + `cookie_check.py`. Adds one `dns_records.py` on the base domain. Aggregates the result into a single Markdown report.
+Orchestrator: runs `subfinder.py` → for each resolved subdomain, in parallel runs `check_headers.py` + `tls_inspect.py` + `cookie_check.py` + `tech_fingerprint.py`. Adds one `dns_records.py` + `subdomain_takeover.py` on the base domain. Aggregates the result into a single Markdown report. `--path-scan` opt-in adds `path_scan.py` per host (adds significant scan time); `--path-preset quick|medium` controls the wordlist size.
 
 ```bash
 tools/recon.py example.com --top 10
 tools/recon.py example.com --output report.md --lang pt
+tools/recon.py example.com --path-scan --path-preset medium
 ```
 
 ## `whois_check.py`
@@ -385,7 +387,7 @@ tools/wayback_check.py https://example.com --proxy http://127.0.0.1:8080
 
 ## `tech_fingerprint.py`
 
-Identify the technology stack behind a website from response headers, cookies, and HTML (Wappalyzer-lite). Signature database covers nginx, Apache, IIS, Caddy; Cloudflare, Fastly, Cloudfront, Akamai; WAFs (Cloudflare WAF, AWS WAF, Sucuri, Imperva/Incapsula, ModSecurity, Akamai Kona, F5 BIG-IP ASM); PHP, ASP.NET, Python, Ruby, Java EE; React, Vue, Svelte, Next, Nuxt, Angular, jQuery, Alpine; WordPress, Drupal, Joomla, Ghost; Shopify, Magento, WooCommerce; Jekyll, Hugo, Gatsby, Astro; Google Analytics, Plausible, Matomo; Rails, Django, Django REST Framework, Flask (Werkzeug), FastAPI (uvicorn), Laravel.
+Identify the technology stack behind a website from response headers, cookies, and HTML (Wappalyzer-lite). Extracts **version numbers** for server software and frameworks where available (e.g. `nginx 1.24.0`, `PHP 8.2.1`, `WordPress 6.4.3`, `jQuery 3.7.1`). Signature database covers nginx, Apache, IIS, Caddy; Cloudflare, Fastly, Cloudfront, Akamai; WAFs (Cloudflare WAF, AWS WAF, Sucuri, Imperva/Incapsula, ModSecurity, Akamai Kona, F5 BIG-IP ASM); PHP, ASP.NET, Python, Ruby, Java EE; React, Vue, Svelte, Next, Nuxt, Angular, jQuery, Alpine; WordPress, Drupal, Joomla, Ghost; Shopify, Magento, WooCommerce; Jekyll, Hugo, Gatsby, Astro; Google Analytics, Plausible, Matomo; Rails, Django, Django REST Framework, Flask (Werkzeug), FastAPI (uvicorn), Laravel.
 
 ```bash
 tools/tech_fingerprint.py https://example.com

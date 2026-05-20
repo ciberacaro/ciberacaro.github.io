@@ -63,9 +63,12 @@ LABELS = {
 # A signature matches if ANY of its specified probes match.
 SIGNATURES = (
     # ---- Web servers
-    {"name": "nginx", "category": "Server", "header_name": "server", "header_re": r"(?i)nginx"},
-    {"name": "Apache httpd", "category": "Server", "header_name": "server", "header_re": r"(?i)apache"},
-    {"name": "IIS", "category": "Server", "header_name": "server", "header_re": r"(?i)IIS|Microsoft-IIS"},
+    {"name": "nginx", "category": "Server", "header_name": "server", "header_re": r"(?i)nginx",
+     "version_re": r"(?i)nginx/([\d.]+)", "version_from": "header_name"},
+    {"name": "Apache httpd", "category": "Server", "header_name": "server", "header_re": r"(?i)apache",
+     "version_re": r"(?i)Apache/([\d.]+)", "version_from": "header_name"},
+    {"name": "IIS", "category": "Server", "header_name": "server", "header_re": r"(?i)IIS|Microsoft-IIS",
+     "version_re": r"(?i)IIS/([\d.]+)", "version_from": "header_name"},
     {"name": "Caddy", "category": "Server", "header_name": "server", "header_re": r"(?i)caddy"},
     {"name": "Cloudflare", "category": "CDN", "header_name": "server", "header_re": r"(?i)cloudflare"},
     {"name": "Fastly", "category": "CDN", "header_re": r"(?i)^x-served-by:.*cache-.*fastly|^via:.*fastly"},
@@ -76,9 +79,11 @@ SIGNATURES = (
     {"name": "Vercel", "category": "Server", "header_re": r"(?i)^server:.*vercel|^x-vercel"},
     {"name": "Netlify", "category": "Server", "header_re": r"(?i)^server:.*netlify|^x-nf-request-id"},
     # ---- Languages / runtimes (via X-Powered-By or cookies)
-    {"name": "PHP", "category": "Language", "header_name": "x-powered-by", "header_re": r"(?i)PHP"},
+    {"name": "PHP", "category": "Language", "header_name": "x-powered-by", "header_re": r"(?i)PHP",
+     "version_re": r"(?i)PHP/([\d.]+)", "version_from": "header_name"},
     {"name": "Node.js / Express", "category": "Framework", "header_name": "x-powered-by", "header_re": r"(?i)express"},
-    {"name": "ASP.NET", "category": "Framework", "header_name": "x-powered-by", "header_re": r"(?i)ASP\.NET"},
+    {"name": "ASP.NET", "category": "Framework", "header_name": "x-powered-by", "header_re": r"(?i)ASP\.NET",
+     "version_re": r"(?i)ASP\.NET.*?([\d.]+)", "version_from": "header_name"},
     {"name": "ASP.NET Core", "category": "Framework", "header_name": "server", "header_re": r"(?i)kestrel"},
     {"name": "Python (any of Django/Flask/FastAPI — needs further probe)", "category": "Language", "header_re": r"(?i)^server:.*python|^server:.*werkzeug|^server:.*gunicorn|^server:.*uvicorn"},
     {"name": "Ruby on Rails", "category": "Framework", "cookie_re": r"_rails_session", "header_re": r"(?i)^x-runtime"},
@@ -86,9 +91,11 @@ SIGNATURES = (
     # ---- CMS
     {"name": "WordPress", "category": "CMS",
      "html_re": r"/wp-(?:content|includes|json)/|<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]WordPress",
-     "cookie_re": r"^wordpress_"},
+     "cookie_re": r"^wordpress_",
+     "version_re": r"WordPress[\s/]+([\d.]+)", "version_from": "html"},
     {"name": "Drupal", "category": "CMS", "header_re": r"(?i)^x-generator:.*drupal",
-     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Drupal"},
+     "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Drupal",
+     "version_re": r"Drupal\s+([\d.]+)", "version_from": "html"},
     {"name": "Joomla", "category": "CMS",
      "html_re": r"<meta[^>]+name=['\"]generator['\"][^>]*content=['\"]Joomla"},
     {"name": "Ghost", "category": "CMS",
@@ -101,7 +108,8 @@ SIGNATURES = (
     {"name": "Next.js", "category": "JS", "html_re": r"/_next/static/|<script id=\"__NEXT_DATA__\""},
     {"name": "Nuxt.js", "category": "JS", "html_re": r"window\.__NUXT__|/_nuxt/"},
     {"name": "Angular", "category": "JS", "html_re": r"ng-version=|ng-app=|<app-root"},
-    {"name": "jQuery", "category": "JS", "html_re": r"/jquery[.-][\d.]+(?:\.min)?\.js"},
+    {"name": "jQuery", "category": "JS", "html_re": r"/jquery[.-][\d.]+(?:\.min)?\.js",
+     "version_re": r"/jquery[.-]([\d.]+)(?:\.min)?\.js", "version_from": "html"},
     {"name": "Alpine.js", "category": "JS", "html_re": r"<script[^>]+alpinejs|x-data="},
     # ---- Site builders / SaaS
     {"name": "Squarespace", "category": "CMS", "header_re": r"(?i)^x-served-by:.*squarespace"},
@@ -160,6 +168,7 @@ class Detection:
     name: str
     category: str
     matched_via: list[str]
+    version: Optional[str] = None
 
 
 def fetch(url: str, timeout: float = 15.0) -> tuple[int, dict, list, str]:
@@ -207,7 +216,20 @@ def fingerprint(headers: dict, set_cookies: list[str], body: str) -> list[Detect
             if re.search(sig["html_re"], body):
                 reasons.append("HTML body")
         if reasons:
-            matches.append(Detection(name=sig["name"], category=sig["category"], matched_via=reasons))
+            version = None
+            if "version_re" in sig:
+                vfrom = sig.get("version_from", "html")
+                if vfrom == "header_name" and "header_name" in sig:
+                    search_text = headers.get(sig["header_name"], "")
+                elif vfrom == "html":
+                    search_text = body
+                else:
+                    search_text = header_blob
+                m = re.search(sig["version_re"], search_text, re.I)
+                if m:
+                    version = m.group(1)
+            matches.append(Detection(name=sig["name"], category=sig["category"],
+                                     matched_via=reasons, version=version))
     return matches
 
 
@@ -228,7 +250,8 @@ def print_human(url: str, detections: list[Detection], lang: str) -> None:
             continue
         print(f"  [{cat}]")
         for d in by_cat[cat]:
-            print(f"    - {d.name}")
+            ver = f" {d.version}" if d.version else ""
+            print(f"    - {d.name}{ver}")
             for reason in d.matched_via:
                 print(f"        {L['matched_via']}: {reason}")
         print()

@@ -368,9 +368,12 @@ TABLE OF CONTENTS · ÍNDICE
     Access-Control-Allow-* response headers. Sends both GET and OPTIONS
     (preflight) requests with arbitrary attacker origins, the magic 'null'
     origin, prefix/suffix tricks (`target.example.attacker.com`,
-    `attacker.com.target.example`), and a legitimate origin. Flags
-    reflected origins, wildcard ACAO with credentials, accepted 'null'
-    origin, and naive prefix/suffix matching bugs.
+    `attacker.com.target.example`), and a legitimate origin. Issues are
+    severity-tiered: CRITICAL when an arbitrary origin is reflected AND
+    Access-Control-Allow-Credentials is true (full session theft — any
+    site reads authenticated responses with the victim's cookies); MEDIUM
+    when origin is reflected without credentials; plus wildcard+creds,
+    null+creds, and prefix/suffix-match bugs.
 
 [EN] QUICK START
     $ tools/cors_check.py https://api.target.example/users/me
@@ -387,10 +390,11 @@ TABLE OF CONTENTS · ÍNDICE
             GET     → ACAO: null   ACAC: true                       [✗ NULL OK]
           ...
         Issues found (2):
-          ✗ Reflected arbitrary Origin with credentials
-            Risk: any site can read this endpoint's response with the user's
-                  cookies. CSRF + data theft.
-            Fix:  validate Origin against an allowlist server-side.
+          ✗ [CRITICAL] Reflected origin with credentials
+            Any site can read this response with the victim's cookies.
+            Risk: full session theft — CSRF + data exfiltration.
+            Fix:  validate Origin against an allowlist server-side; never
+                  combine ACAO reflection with ACAC: true.
 
     # Scenario 2 — JSON for a recon report
     $ tools/cors_check.py https://api.example.com/me --json
@@ -421,9 +425,12 @@ TABLE OF CONTENTS · ÍNDICE
     (preflight) com origens de atacante arbitrárias, a origem 'null'
     mágica, truques de prefixo/sufixo
     (`target.example.attacker.com`, `attacker.com.target.example`),
-    e uma origem legítima. Assinala origens refletidas, ACAO wildcard com
-    credentials, origem 'null' aceite, e bugs de prefix/suffix matching
-    ingénuos.
+    e uma origem legítima. Os problemas têm severidade diferenciada:
+    CRÍTICO quando uma origem arbitrária é refletida E
+    Access-Control-Allow-Credentials é true (roubo de sessão completo —
+    qualquer site lê respostas autenticadas com os cookies da vítima);
+    MÉDIO quando a origem é refletida sem credentials; mais
+    wildcard+creds, null+creds, e bugs de prefix/suffix matching.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/cors_check.py https://api.target.example/users/me
@@ -440,10 +447,11 @@ TABLE OF CONTENTS · ÍNDICE
             GET     → ACAO: null   ACAC: true                      [✗ NULL OK]
           ...
         Problemas encontrados (2):
-          ✗ Origin arbitrário refletido com credentials
-            Risco:    qualquer site pode ler a resposta com os cookies do
-                      utilizador. CSRF + roubo de dados.
-            Correção: validar Origin contra uma allowlist no servidor.
+          ✗ [CRÍTICO] Origem refletida com credentials
+            Qualquer site pode ler a resposta com os cookies da vítima.
+            Risco:    roubo de sessão completo — CSRF + exfiltração de dados.
+            Correção: validar Origin contra uma allowlist no servidor; nunca
+                      combinar reflexão de ACAO com ACAC: true.
 
     # Cenário 2 — JSON para um relatório de recon
     $ tools/cors_check.py https://api.example.com/me --json
@@ -804,7 +812,10 @@ TABLE OF CONTENTS · ÍNDICE
     ModSecurity, Akamai Kona, F5 BIG-IP ASM), languages and frameworks
     (PHP, ASP.NET, Python, Node.js, Rails, Java), CMSs (WordPress, Drupal,
     Joomla, Ghost), JS frameworks (React, Vue, Svelte, Next, Angular),
-    e-commerce (Shopify, Magento), and analytics.
+    e-commerce (Shopify, Magento), and analytics. Where possible,
+    version numbers are extracted (e.g. "nginx 1.24.0", "PHP 8.2.1",
+    "WordPress 6.4.3", "jQuery 3.7.1") — combine with cve_lookup to
+    surface known CVEs for the detected version.
 
 [EN] QUICK START
     $ tools/tech_fingerprint.py https://example.com
@@ -816,16 +827,16 @@ TABLE OF CONTENTS · ÍNDICE
         URL: https://target.example
         Status: 200
         Detected:
-          Server          nginx
+          Server          nginx 1.24.0
               evidence: Server header
           CDN             Cloudflare
               evidence: cf-ray header, __cfduid cookie
           WAF             Cloudflare WAF
               evidence: cf-mitigated header
-          CMS             WordPress
+          CMS             WordPress 6.4.3
               evidence: /wp-content/ path, generator meta
-          JS              React
-              evidence: __NEXT_DATA__ in HTML
+          JS              jQuery 3.7.1
+              evidence: /jquery-3.7.1.min.js in HTML
         5 technologies detected.
 
     # Scenario 2 — JSON for piping into recon scripts
@@ -845,8 +856,10 @@ TABLE OF CONTENTS · ÍNDICE
 [EN] TIPS
     - Fingerprints rely on what the site exposes. A site behind a strict
       WAF or with stripped headers will surface less information.
-    - Pair with cve_lookup once you know the version: `WordPress 5.7` +
-      `tools/cve_lookup.py CVE-2021-29447`.
+    - Version numbers are extracted automatically when detectable from
+      headers or HTML (Server: nginx/1.24.0, PHP/8.2.1, WordPress meta
+      generator, jQuery script src). Pair with cve_lookup:
+      `tools/cve_lookup.py wordpress 6.4.3`.
     - Generator meta tags (`<meta name="generator" content="...">`) are
       one of the most reliable signals — and the easiest for the site
       owner to remove.
@@ -861,6 +874,9 @@ TABLE OF CONTENTS · ÍNDICE
     linguagens e frameworks (PHP, ASP.NET, Python, Node.js, Rails, Java),
     CMSs (WordPress, Drupal, Joomla, Ghost), JS frameworks (React, Vue,
     Svelte, Next, Angular), e-commerce (Shopify, Magento) e analytics.
+    Sempre que possível, os números de versão são extraídos (ex. "nginx
+    1.24.0", "PHP 8.2.1", "WordPress 6.4.3", "jQuery 3.7.1") — combina
+    com cve_lookup para encontrar CVEs conhecidos para a versão detetada.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/tech_fingerprint.py https://example.com
@@ -872,16 +888,16 @@ TABLE OF CONTENTS · ÍNDICE
         URL: https://target.example
         Estado: 200
         Detetado:
-          Servidor        nginx
+          Servidor        nginx 1.24.0
               evidência: Server header
           CDN             Cloudflare
               evidência: cf-ray header, __cfduid cookie
           WAF             Cloudflare WAF
               evidência: cf-mitigated header
-          CMS             WordPress
+          CMS             WordPress 6.4.3
               evidência: caminho /wp-content/, meta generator
-          JS              React
-              evidência: __NEXT_DATA__ no HTML
+          JS              jQuery 3.7.1
+              evidência: /jquery-3.7.1.min.js no HTML
         5 tecnologias detetadas.
 
     # Cenário 2 — JSON para pipe em scripts de recon
@@ -901,8 +917,10 @@ TABLE OF CONTENTS · ÍNDICE
 [PT] DICAS
     - As fingerprints dependem do que o site expõe. Um site atrás de um
       WAF estrito ou com headers removidos revela menos informação.
-    - Combina com cve_lookup quando souberes a versão: `WordPress 5.7` +
-      `tools/cve_lookup.py CVE-2021-29447`.
+    - Os números de versão são extraídos automaticamente quando detetáveis
+      nos headers ou HTML (Server: nginx/1.24.0, PHP/8.2.1, meta
+      generator WordPress, src jQuery). Combina com cve_lookup:
+      `tools/cve_lookup.py wordpress 6.4.3`.
     - Os meta generator (`<meta name="generator" content="...">`) são um
       dos sinais mais fiáveis — e os mais fáceis do dono do site remover.
 
@@ -1195,9 +1213,12 @@ TABLE OF CONTENTS · ÍNDICE
     response baseline (HTTP status + body length), then probes each name
     with a canary value and flags any parameter that produces a measurable
     difference: status code change, body length delta >= threshold, or the
-    parameter value reflected in the response body. Useful for surfacing
-    cache-poisoning vectors, mass-assignment bugs, internal feature flags,
-    and forgotten debug parameters.
+    parameter value reflected in the response body. Optional --bool-probe
+    runs a second pass using 'true'/'false' values — catches parameters
+    that ignore canary strings but respond to boolean toggles (feature
+    flags, A/B test gates). Useful for surfacing cache-poisoning vectors,
+    mass-assignment bugs, internal feature flags, and forgotten debug
+    parameters.
 
 [EN] QUICK START
     $ tools/param_miner.py https://api.example.com/users
@@ -1221,14 +1242,21 @@ TABLE OF CONTENTS · ÍNDICE
     # Scenario 2 — raise the threshold to cut noise on a chatty endpoint
     $ tools/param_miner.py https://api.example.com/users --threshold 50
 
-    # Scenario 3 — JSON output for pipeline use
-    $ tools/param_miner.py https://api.example.com/users --json | \
-        jq '.findings[] | {param, status, length}'
+    # Scenario 3 — boolean probe to catch feature-flag parameters
+    $ tools/param_miner.py https://api.example.com/users --bool-probe
+    Expected output (truncated):
+        Hidden parameters found (1):
+
+          ✗ Parameter 'beta' detected
+             (boolean-gated, value='true')
+             Length delta: 1432 → 1890 bytes (+458)
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
     --threshold BYTES    Minimum body length delta to flag. Default: 5.
                          Raise to 20-50 on endpoints with dynamic content.
+    --bool-probe         Second pass with true/false values. Catches params
+                         that ignore canary strings but respond to booleans.
     --threads N          Concurrent probes. Default: 10.
     --timeout SECS       Per-request timeout. Default: 10.
     --method GET|POST    HTTP method. Default: GET.
@@ -1252,6 +1280,8 @@ TABLE OF CONTENTS · ÍNDICE
       also change CORS behaviour.
     - Default threshold of 5 bytes is sensitive but noisy on pages with
       timestamps or anti-CSRF tokens in the body. Raise to 50+ for those.
+    - --bool-probe is slow (doubles the scan) but essential for endpoints
+      that return the same body for any non-boolean canary value.
 
 [PT] PROPÓSITO
     Descobre parâmetros de query ocultos ou não documentados testando
@@ -1259,10 +1289,12 @@ TABLE OF CONTENTS · ÍNDICE
     baseline de resposta (status HTTP + tamanho do body), depois sonda
     cada nome com um valor canary e sinaliza qualquer parâmetro que
     produza uma diferença medível: mudança de status code, delta de
-    tamanho >= limiar, ou o valor do parâmetro refletido no body.
-    Útil para surfacing de vetores de cache poisoning, bugs de
-    mass-assignment, feature flags internas, e parâmetros de debug
-    esquecidos.
+    tamanho >= limiar, ou o valor do parâmetro refletido no body. O
+    --bool-probe opcional faz uma segunda passagem com valores 'true'/
+    'false' — apanha parâmetros que ignoram strings canary mas respondem
+    a booleanos (feature flags, gates de A/B testing). Útil para
+    vetores de cache poisoning, bugs de mass-assignment, feature flags
+    internas, e parâmetros de debug esquecidos.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/param_miner.py https://api.example.com/users
@@ -1285,15 +1317,24 @@ TABLE OF CONTENTS · ÍNDICE
     $ tools/param_miner.py https://api.example.com/users --threshold 50 \
         --lang pt
 
-    # Cenário 3 — JSON para pipeline
-    $ tools/param_miner.py https://api.example.com/users --json | \
-        jq '.findings[] | {param, status, length}'
+    # Cenário 3 — sondagem booleana para apanhar feature flags
+    $ tools/param_miner.py https://api.example.com/users --bool-probe \
+        --lang pt
+    Output esperado (truncado):
+        Parâmetros ocultos encontrados (1):
+
+          ✗ Parâmetro 'beta' detetado
+             (booleano, valor='true')
+             Delta de tamanho: 1432 → 1890 bytes (+458)
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
     --threshold BYTES    Delta mínimo de tamanho do body para sinalizar.
                          Por omissão: 5. Eleva para 20-50 em endpoints
                          com conteúdo dinâmico.
+    --bool-probe         Segunda passagem com valores true/false. Apanha
+                         parâmetros que ignoram canary mas respondem a
+                         booleanos.
     --threads N          Probes concorrentes. Por omissão: 10.
     --timeout SEGUNDOS   Timeout por pedido. Por omissão: 10.
     --method GET|POST    Método HTTP. Por omissão: GET.
@@ -1315,6 +1356,9 @@ TABLE OF CONTENTS · ÍNDICE
       e apontam frequentemente para mass-assignment ou template injection.
     - Combina com cors_check: um parâmetro que muda a resposta pode também
       mudar o comportamento CORS.
+    - --bool-probe é mais lento (duplica o scan) mas essencial para
+      endpoints que retornam o mesmo body para qualquer valor canary não
+      booleano.
 
 --------------------------------------------------------------------------------
 1.11 crlf_inject.py
@@ -3793,10 +3837,12 @@ print(len(crits),'findings críticos')"
     One-command reconnaissance orchestrator that composes the other
     tools. Workflow: (1) run subfinder to enumerate subdomains;
     (2) for each resolved subdomain (top N) in parallel, run
-    check_headers + tls_inspect + cookie_check; (3) run dns_records
-    against the base domain; (4) aggregate everything into a single
-    Markdown report. Use it as the starting point of any deep-dive on
-    a target, then drill in with individual tools where needed.
+    check_headers + tls_inspect + cookie_check + tech_fingerprint;
+    (3) run dns_records + subdomain_takeover against the base domain;
+    (4) optionally run path_scan per host (--path-scan, slow but
+    thorough); (5) aggregate everything into a single Markdown report.
+    Use it as the starting point of any deep-dive on a target, then
+    drill in with individual tools where needed.
 
 [EN] QUICK START
     $ tools/recon.py example.com
@@ -3815,7 +3861,11 @@ print(len(crits),'findings críticos')"
     # Scenario 3 — PT-PT report for a writeup
     $ tools/recon.py target.example --lang pt --output recon.md
 
-    # Scenario 4 — raw JSON output for programmatic processing
+    # Scenario 4 — full recon with path scan (medium preset)
+    $ tools/recon.py target.example --top 5 --path-scan \
+        --path-preset medium --output recon.md
+
+    # Scenario 5 — raw JSON output for programmatic processing
     $ tools/recon.py target.example --json > recon.json
 
 [EN] FLAGS
@@ -3823,6 +3873,8 @@ print(len(crits),'findings críticos')"
     --top N             Max subdomains to scan per host. Default 10.
     --threads N         Parallel per-host scans. Default 6.
     --output FILE, -o   Write Markdown to a file instead of stdout.
+    --path-scan         Run path_scan.py per host (opt-in, slow).
+    --path-preset quick|medium  Wordlist for path scanning. Default: quick.
 
 [EN] EXIT CODES
     0  Recon completed
@@ -3837,15 +3889,19 @@ print(len(crits),'findings críticos')"
     - The Markdown report is a good starting draft for a writeup: open
       it, replace recon.py's prose with your own commentary, keep the
       tables.
+    - --path-scan adds significant time (path_scan.py per host). Keep
+      --top low (3-5) when combining with --path-preset medium.
 
 [PT] PROPÓSITO
     Orquestrador de reconhecimento que compõe os outros tools num
     comando. Fluxo: (1) corre subfinder para enumerar subdomínios;
     (2) para cada subdomínio resolvido (top N) em paralelo, corre
-    check_headers + tls_inspect + cookie_check; (3) corre dns_records
-    contra o domínio base; (4) agrega tudo num relatório Markdown
-    único. Usa-o como ponto de partida de qualquer deep-dive a um
-    alvo, depois aprofunda com tools individuais onde necessário.
+    check_headers + tls_inspect + cookie_check + tech_fingerprint;
+    (3) corre dns_records + subdomain_takeover contra o domínio base;
+    (4) opcionalmente corre path_scan por host (--path-scan, lento
+    mas completo); (5) agrega tudo num relatório Markdown único. Usa-o
+    como ponto de partida de qualquer deep-dive a um alvo, depois
+    aprofunda com tools individuais onde necessário.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/recon.py example.com
@@ -3865,7 +3921,11 @@ print(len(crits),'findings críticos')"
     # Cenário 3 — relatório PT-PT para um writeup
     $ tools/recon.py target.example --lang pt --output recon.md
 
-    # Cenário 4 — output JSON cru para processamento programático
+    # Cenário 4 — recon completo com path scan (preset medium)
+    $ tools/recon.py target.example --top 5 --path-scan \
+        --path-preset medium --output recon.md
+
+    # Cenário 5 — output JSON cru para processamento programático
     $ tools/recon.py target.example --json > recon.json
 
 [PT] FLAGS
@@ -3873,6 +3933,8 @@ print(len(crits),'findings críticos')"
     --top N             Subdomínios máximos a analisar por host. Por omissão 10.
     --threads N         Scans paralelos por host. Por omissão 6.
     --output FICHEIRO, -o   Escreve Markdown para ficheiro em vez de stdout.
+    --path-scan         Corre path_scan.py por host (opt-in, lento).
+    --path-preset quick|medium  Wordlist para path scanning. Por omissão: quick.
 
 [PT] CÓDIGOS DE SAÍDA
     0  Recon completo
@@ -3887,6 +3949,8 @@ print(len(crits),'findings críticos')"
     - O relatório Markdown é um bom rascunho inicial para um writeup:
       abre-o, substitui a prosa do recon.py por comentário teu, mantém
       as tabelas.
+    - --path-scan aumenta muito o tempo (path_scan.py por host). Mantém
+      --top baixo (3-5) quando combinas com --path-preset medium.
 
 ================================================================================
 9. HACKTHEBOX

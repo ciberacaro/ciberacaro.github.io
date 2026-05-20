@@ -61,6 +61,9 @@ LABELS = {
         "takeover_clean": "No takeover indicators found.",
         "summary": "Summary",
         "total_issues": "Total issues found across all hosts",
+        "path_scan_section": "Path scan",
+        "paths_found": "paths found",
+        "path_scan_off": "Path scan not run (use --path-scan to enable).",
     },
     "pt": {
         "report_title": "Relatório de reconhecimento",
@@ -84,6 +87,9 @@ LABELS = {
         "takeover_clean": "Sem indicadores de takeover.",
         "summary": "Resumo",
         "total_issues": "Total de problemas encontrados em todos os hosts",
+        "path_scan_section": "Scan de caminhos",
+        "paths_found": "caminhos encontrados",
+        "path_scan_off": "Scan de caminhos não executado (usa --path-scan para ativar).",
     },
 }
 
@@ -96,6 +102,7 @@ class HostReport:
     tls: dict | None = None
     cookies: dict | None = None
     techfp: dict | None = None
+    path_scan: dict | None = None
     issues_count: int = 0
 
 
@@ -175,6 +182,20 @@ def takeover_scan(domain: str, lang: str, timeout: float = 120.0) -> dict | None
     )
 
 
+def path_scan_for(host: str, preset: str, lang: str, timeout: float = 120.0) -> dict | None:
+    """Run path_scan.py against host (tries https then http)."""
+    for scheme in ("https", "http"):
+        result = run_tool(
+            [str(TOOLS_DIR / "path_scan.py"), f"{scheme}://{host}",
+             "--preset", preset, "--threads", "5",
+             "--json", "--lang", lang],
+            timeout=timeout,
+        )
+        if result is not None:
+            return result
+    return None
+
+
 def count_issues(host_report: HostReport) -> int:
     count = 0
     if host_report.headers:
@@ -241,6 +262,15 @@ def render_report(domain: str, dns: dict | None, hosts: list[HostReport],
         out.append(f"- **{L['tls']}:** {_tls_summary(host.tls, L)}")
         out.append(f"- **{L['cookies']}:** {_cookies_summary(host.cookies, L)}")
         out.append(f"- **{L['tech']}:** {_techfp_summary(host.techfp, L)}")
+        if host.path_scan is not None:
+            ps_findings = host.path_scan.get("findings", [])
+            out.append(f"- **{L['path_scan_section']}:** {len(ps_findings)} {L['paths_found']}")
+            for pf in ps_findings[:10]:
+                risk = f" [{pf.get('risk_level', '').upper()}]" if pf.get('risk_level') else ""
+                redir = f" → {pf['redirect_url']}" if pf.get('redirect_url') else ""
+                out.append(f"  - `{pf.get('status', '?')}` /{pf.get('path', '?').lstrip('/')}{risk}{redir}")
+            if len(ps_findings) > 10:
+                out.append(f"  - … ({len(ps_findings) - 10} more)")
         # Issue details
         all_issues = _collect_host_issues(host)
         if all_issues:
@@ -344,7 +374,8 @@ def _collect_host_issues(host: HostReport):
     return out
 
 
-def scan_host(host_info: dict, lang: str) -> HostReport:
+def scan_host(host_info: dict, lang: str,
+              do_path_scan: bool = False, path_preset: str = "quick") -> HostReport:
     host = host_info["hostname"]
     ips = host_info.get("ips", [])
     h = HostReport(hostname=host, ips=ips)
@@ -352,6 +383,8 @@ def scan_host(host_info: dict, lang: str) -> HostReport:
     h.tls = tls_for(host, lang)
     h.cookies = cookies_for(host, lang)
     h.techfp = techfp_for(host, lang)
+    if do_path_scan:
+        h.path_scan = path_scan_for(host, path_preset, lang)
     h.issues_count = count_issues(h)
     return h
 
@@ -368,6 +401,11 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=6, help="Parallel per-host scans (default: 6)")
     parser.add_argument("--output", "-o", help="Write the markdown report to a file instead of stdout")
     parser.add_argument("--json", action="store_true", help="Output raw JSON instead of markdown")
+    parser.add_argument("--path-scan", action="store_true", dest="path_scan",
+                        help="Run path_scan.py against each host (adds significant scan time).")
+    parser.add_argument("--path-preset", choices=("quick", "medium"), default="quick",
+                        dest="path_preset",
+                        help="Wordlist preset for path scanning: quick (75) or medium (263 paths). Default: quick.")
     args = parser.parse_args()
     L = LABELS[args.lang]
 
@@ -387,10 +425,14 @@ def main() -> int:
     print(f"{L['running']}: subdomain_takeover.py on {domain} …", file=sys.stderr)
     takeover = takeover_scan(domain, args.lang)
 
-    print(f"{L['running']}: {len(targets)} host scan(s) in parallel …", file=sys.stderr)
+    scan_desc = f" + path scan ({args.path_preset})" if args.path_scan else ""
+    print(f"{L['running']}: {len(targets)} host scan(s) in parallel{scan_desc} …", file=sys.stderr)
     hosts: list[HostReport] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.threads) as pool:
-        futures = {pool.submit(scan_host, h, args.lang): h["hostname"] for h in targets}
+        futures = {
+            pool.submit(scan_host, h, args.lang, args.path_scan, args.path_preset): h["hostname"]
+            for h in targets
+        }
         for fut in concurrent.futures.as_completed(futures):
             try:
                 hosts.append(fut.result())
@@ -411,6 +453,7 @@ def main() -> int:
                     "hostname": h.hostname, "ips": h.ips,
                     "headers": h.headers, "tls": h.tls,
                     "cookies": h.cookies, "techfp": h.techfp,
+                    "path_scan": h.path_scan,
                     "issues_count": h.issues_count,
                 }
                 for h in hosts

@@ -91,6 +91,16 @@ ISSUE_TEXT = {
         "pt": ("Servidor reflete um origin que começa com o domínio alvo ({}) — possível bug de prefix-match",
                "Mesmo problema do anterior — só correspondência exata."),
     },
+    "reflected_with_credentials": {
+        "en": ("Arbitrary origin reflected with Allow-Credentials: true ({})",
+               "Full session theft possible: attacker can read cookies, auth tokens, "
+               "and sensitive API responses cross-origin. Validate Origin server-side "
+               "with a strict allowlist; never echo the request Origin."),
+        "pt": ("Origin arbitrário refletido com Allow-Credentials: true ({})",
+               "Roubo de sessão completo possível: o atacante pode ler cookies, tokens "
+               "de autenticação e respostas de API sensíveis cross-origin. Valida Origin "
+               "no servidor com uma allowlist estrita; nunca ecoes o Origin do pedido."),
+    },
 }
 
 
@@ -186,13 +196,20 @@ def evaluate(probes: list[Probe], target_host: str, lang: str) -> list[Issue]:
             issues.append(Issue("null_accepted", t[0], t[0], t[1]))
             seen_keys.add("null_accepted")
 
-        # Reflected origin == sent origin (and the sent origin isn't the legit one)
+        # Reflected origin: split into credentialed (critical) vs not (medium)
         if acao.lower() == p.origin.lower() and p.origin and p.origin != f"https://{target_host}":
-            key = "reflected_origin"
-            if key not in seen_keys:
-                t = ISSUE_TEXT[key][lang]
-                issues.append(Issue(key, t[0].format(p.origin), t[0].format(p.origin), t[1]))
-                seen_keys.add(key)
+            if acac_true:
+                key = "reflected_with_credentials"
+                if key not in seen_keys:
+                    t = ISSUE_TEXT[key][lang]
+                    issues.append(Issue(key, t[0].format(p.origin), t[0].format(p.origin), t[1]))
+                    seen_keys.add(key)
+            else:
+                key = "reflected_origin"
+                if key not in seen_keys:
+                    t = ISSUE_TEXT["reflected_origin"][lang]
+                    issues.append(Issue(key, t[0].format(p.origin), t[0].format(p.origin), t[1]))
+                    seen_keys.add(key)
 
         # Prefix / suffix tricks
         if "attacker" in p.origin.lower() and acao.lower() == p.origin.lower():

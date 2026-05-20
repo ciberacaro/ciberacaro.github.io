@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-20 (Session 5 — 3 tool improvements: path_scan --preset medium, secrets_scan severity grouping, check_headers CSP deep analysis; total 33 tools).
+Last updated: 2026-05-20 (Session 5 complete — 7 tool improvements across 2 phases: path_scan --preset medium, secrets_scan severity grouping, check_headers CSP deep analysis, recon --path-scan flag, cors_check reflected_with_credentials, tech_fingerprint version extraction, param_miner --bool-probe; total 33 tools).
 
 ---
 
@@ -16,13 +16,19 @@ Last updated: 2026-05-20 (Session 5 — 3 tool improvements: path_scan --preset 
 
 ### Session 5 — 2026-05-20
 
-**Goal at the start:** Implement 3 tool improvements identified in Session 4: (1) path_scan medium wordlist preset, (2) secrets_scan severity grouping, (3) check_headers CSP deep analysis.
+**Goal at the start:** Implement 3 tool improvements identified in Session 4: (1) path_scan medium wordlist preset, (2) secrets_scan severity grouping, (3) check_headers CSP deep analysis. Then implement 4 more improvements identified in-session.
 
-**What was done:**
+**What was done (Phase 1):**
 - `path_scan.py` — added `--preset {quick,medium}` flag. Quick = existing 75-path wordlist (default). Medium = 263 paths: all of quick plus CMS (Joomla, Drupal, Magento, WP extras), Laravel/Symfony/Rails/Django configs, Node/Python dependency files, API docs (Swagger/OpenAPI/GraphQL), Spring Boot heap/thread dumps, Java internals (WEB-INF/web.xml), CI/CD files (.gitlab-ci.yml, Jenkinsfile, .travis.yml), VCS metadata (.svn/, .hg/), credential stores (.aws/credentials, .bash_history), log files, auth/SSO paths, CTF staples (flag.txt, secret.txt). Extended RISK_PATTERNS with 9 new patterns for new path categories (admin_interface, java_dump, java_internals, api_docs, vcs_exposed, secret_file, devops_tool, log_file, dependency_file).
 - `secrets_scan.py` — added `severity` field to `Finding` dataclass; `PATTERN_SEVERITY` dict maps each pattern to critical/high/medium/low/info tier; `print_human` now groups by severity (critical first) with ANSI colour per tier; added `.env*` filename detection (`env_file_name` pattern, info tier) via `_env_file_finding()` called in `walk_path`.
 - `check_headers.py` — enhanced `check_csp()` with 3 new weak-CSP checks: `data:` URI in script/default-src (XSS via data URI), `http:` scheme in script/default-src (plaintext script load), missing `object-src` when `default-src` is also absent (plugin bypass). Added corresponding NOTES keys in both EN and PT.
-- Updated README.md, HOWTO.txt (path_scan + secrets_scan sections fully rewritten with new examples), SESSION_LOG, CLAUDE.md per the four-file rule.
+
+**What was done (Phase 2):**
+- `recon.py` — `--path-scan` opt-in flag runs `path_scan.py` per host (adds significant scan time); `--path-preset quick|medium` controls wordlist size; `HostReport.path_scan` field in JSON output; path scan section per host in Markdown report; tech_fingerprint + subdomain_takeover already part of workflow.
+- `cors_check.py` — split reflected-origin handling: when `Access-Control-Allow-Credentials: true` → `reflected_with_credentials` (critical, full session theft); when ACAC absent/false → existing `reflected_origin` (medium). ISSUE_TEXT updated with risk text in EN + PT.
+- `tech_fingerprint.py` — version numbers extracted where detectable: `Detection.version` field added; `version_re` + `version_from` fields added to nginx, Apache, IIS, PHP, ASP.NET, WordPress, Drupal, jQuery signatures; `fingerprint()` extracts version via regex on server header or HTML body; `print_human()` shows version inline (e.g. "nginx 1.24.0").
+- `param_miner.py` — `--bool-probe` flag: second pass on undetected params using `true`/`false` values; `_bool_probe()` function; `Finding.bool_value` field; JSON output includes `bool_probe` key. Catches boolean-gated feature flags that canary strings miss.
+- Updated README.md, HOWTO.txt (all 4 tool sections updated with new capabilities and examples), SESSION_LOG, CLAUDE.md per the four-file rule.
 
 ---
 
@@ -127,7 +133,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `hashid.py` | Identify ~25 hash types with confidence + hashcat modes |
 | `tls_inspect.py` | Cert info + accepted-TLS-version enumeration + weak-version flags |
 | `jwt_inspect.py` | Decode JWTs, flag `alg:none`/unknown alg/expired/nbf-future/missing claims |
-| `cors_check.py` | Probes with attacker/null/prefix/suffix origins, GET + OPTIONS preflight |
+| `cors_check.py` | Probes with attacker/null/prefix/suffix origins, GET + OPTIONS preflight; severity-split: reflected+creds = critical |
 | `subfinder.py` | crt.sh + HackerTarget + wordlist + rate-limited parallel DNS resolution |
 | `htb_stats.py` | HackTheBox badge markdown; profile stats with `HTB_TOKEN` |
 | `header_diff.py` | Snapshot + diff security headers over time |
@@ -135,10 +141,10 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `cookie_check.py` | `Set-Cookie` security-flag audit (HttpOnly/Secure/SameSite/Domain) |
 | `dns_records.py` | Raw-stdlib DNS (UDP+TCP) for A/AAAA/MX/NS/TXT/CAA + SPF/DMARC audit |
 | `secrets_scan.py` | Filesystem + git-history scan; severity grouping (critical→info); .env filename detection |
-| `recon.py` | Orchestrator: composes subfinder + check_headers + tls_inspect + cookie_check + dns_records → single Markdown report |
+| `recon.py` | Orchestrator: subfinder + check_headers + tls_inspect + cookie_check + tech_fingerprint + dns_records + subdomain_takeover; opt-in --path-scan |
 | `whois_check.py` | WHOIS query (TCP/43) with parsed fields; flag expired / no DNSSEC |
 | `wayback_check.py` | Wayback Machine closest snapshot / timeline / live-vs-archived diff |
-| `tech_fingerprint.py` | Identify web stack (server, CDN, language, framework, CMS, JS lib, analytics) |
+| `tech_fingerprint.py` | Identify web stack (server, CDN, language, framework, CMS, JS lib, analytics) + version extraction |
 | `password_strength.py` | Entropy + HIBP k-anonymity check (full password never leaves machine) |
 | `cve_lookup.py` | Fetch CVE details from NVD v2 API |
 | `xor_crack.py` | XOR ciphertext recovery (single + multi-byte via frequency analysis) |
@@ -148,7 +154,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `email_forensics.py` | .eml header analysis: SPF/DKIM/DMARC, Received chain, brand impersonation |
 | `file_hash.py` | Forensic file hashing (MD5/SHA, manifests, chain-of-custody) |
 | `open_redirect.py` | Open redirect probe: 8 payloads × 28 params (URL params + 24 common names) |
-| `param_miner.py` | Hidden parameter discovery: 278-name wordlist, baseline delta + reflection |
+| `param_miner.py` | Hidden parameter discovery: 278-name wordlist, baseline delta + reflection + --bool-probe (boolean-gated params) |
 | `crlf_inject.py` | CRLF injection / HTTP response splitting (http.client raw, canary-header confirmed, 8 payload variants incl. double-encoded) |
 | `ssrf_probe.py` | SSRF probe: 22 internal payloads (AWS IMDSv1, GCP, Azure, localhost:ports) |
 | `http_smuggling_probe.py` | HTTP/1.1 request smuggling CL.TE / TE.CL via raw socket timing side-channel |

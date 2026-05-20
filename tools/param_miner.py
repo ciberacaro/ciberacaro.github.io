@@ -125,6 +125,7 @@ LABELS = {
         "reflected": "Parameter reflected in response",
         "err_scheme": "error: URL must start with http:// or https://",
         "err_net": "error: could not reach",
+        "bool_probe": "Boolean probe",
     },
     "pt": {
         "target": "Alvo",
@@ -140,6 +141,7 @@ LABELS = {
         "reflected": "Parâmetro refletido na resposta",
         "err_scheme": "erro: URL tem de começar por http:// ou https://",
         "err_net": "erro: não foi possível alcançar",
+        "bool_probe": "Sondagem booleana",
     },
 }
 
@@ -183,6 +185,7 @@ class Finding:
     status: int
     length: int
     reflected: bool
+    bool_value: Optional[str] = None
 
 
 @dataclass
@@ -221,6 +224,15 @@ def _build_get_url(base_url: str, param: str) -> str:
     parsed = urllib.parse.urlparse(base_url)
     qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
     qs[param] = [f"canary{hash(param) % 10000}"]
+    return urllib.parse.urlunparse(
+        parsed._replace(query=urllib.parse.urlencode(qs, doseq=True))
+    )
+
+
+def _build_get_url_with_value(base_url: str, param: str, value: str) -> str:
+    parsed = urllib.parse.urlparse(base_url)
+    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    qs[param] = [value]
     return urllib.parse.urlunparse(
         parsed._replace(query=urllib.parse.urlencode(qs, doseq=True))
     )
@@ -276,6 +288,55 @@ def _probe(
     return None
 
 
+def _bool_probe(
+    base_url: str,
+    param: str,
+    baseline: Baseline,
+    timeout: float,
+    user_agent: str,
+    threshold: int,
+    method: str,
+    post_type: str,
+) -> Optional[Finding]:
+    """Probe param with 'true' vs 'false'; return Finding if they differ from each other."""
+    if method == "GET":
+        st, lt, bt = _fetch(_build_get_url_with_value(base_url, param, "true"),
+                            timeout, user_agent, method="GET")
+        sf, lf, bf = _fetch(_build_get_url_with_value(base_url, param, "false"),
+                            timeout, user_agent, method="GET")
+    elif post_type == "json":
+        import json as _json
+        st, lt, bt = _fetch(base_url, timeout, user_agent, method="POST",
+                            data=_json.dumps({param: "true"}).encode(),
+                            content_type="application/json")
+        sf, lf, bf = _fetch(base_url, timeout, user_agent, method="POST",
+                            data=_json.dumps({param: "false"}).encode(),
+                            content_type="application/json")
+    else:
+        st, lt, bt = _fetch(base_url, timeout, user_agent, method="POST",
+                            data=urllib.parse.urlencode({param: "true"}).encode(),
+                            content_type="application/x-www-form-urlencoded")
+        sf, lf, bf = _fetch(base_url, timeout, user_agent, method="POST",
+                            data=urllib.parse.urlencode({param: "false"}).encode(),
+                            content_type="application/x-www-form-urlencoded")
+
+    if st is None or sf is None:
+        return None
+
+    status_differ = st != sf
+    length_differ = abs(lt - lf) >= threshold
+
+    if status_differ or length_differ:
+        # Pick the value that differs more from baseline
+        val = "true" if abs(lt - baseline.length) > abs(lf - baseline.length) else "false"
+        status = st if val == "true" else sf
+        length = lt if val == "true" else lf
+        reflected = param in ((bt or "") + (bf or ""))
+        return Finding(param=param, status=status, length=length,
+                       reflected=reflected, bool_value=val)
+    return None
+
+
 def load_wordlist(path: str) -> List[str]:
     """Load parameter names from a file (one per line, strip comments)."""
     names: List[str] = []
@@ -296,6 +357,7 @@ def run(
     method: str,
     post_type: str,
     param_names: List[str],
+    bool_probe: bool = False,
 ) -> tuple[List[Finding], Baseline]:
     baseline_data: Optional[bytes] = None
     baseline_ct: Optional[str] = None
@@ -324,6 +386,21 @@ def run(
             if f:
                 findings.append(f)
 
+    # Boolean probe pass (optional)
+    if bool_probe:
+        seen_params = {f.param for f in findings}
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            bfutures = {
+                ex.submit(_bool_probe, url, param, baseline, timeout, user_agent,
+                          threshold, method, post_type): param
+                for param in param_names
+                if param not in seen_params  # skip already-found params
+            }
+            for future in as_completed(bfutures):
+                f = future.result()
+                if f:
+                    findings.append(f)
+
     return findings, baseline
 
 
@@ -340,7 +417,12 @@ def print_human(url: str, findings: List[Finding], baseline: Baseline, all_param
     if findings:
         print(f"{L['findings_header']} ({len(findings)}):\n")
         for f in findings:
-            extra = " (reflected)" if f.reflected else ""
+            extra_parts = []
+            if f.reflected:
+                extra_parts.append("reflected")
+            if f.bool_value:
+                extra_parts.append(f"boolean-gated, value={f.bool_value!r}")
+            extra = f" ({', '.join(extra_parts)})" if extra_parts else ""
             print(f"  ✗ {IT['label'].format(f.param)}{extra}")
             print(f"     {L['status_change']}: {baseline.status} → {f.status}")
             print(f"     {L['length_delta']}: {baseline.length} → {f.length} bytes ({f.length - baseline.length:+d})")
@@ -404,6 +486,12 @@ def main() -> int:
         metavar="FILE",
         help="Custom wordlist file (one parameter name per line). Replaces the built-in list.",
     )
+    parser.add_argument(
+        "--bool-probe",
+        action="store_true",
+        dest="bool_probe",
+        help="Also probe each parameter with true/false values (detects boolean-gated params). Doubles request count.",
+    )
     args = parser.parse_args()
 
     L = LABELS[args.lang]
@@ -427,6 +515,7 @@ def main() -> int:
     findings, baseline = run(
         args.url, args.timeout, USER_AGENT, args.threshold, args.threads,
         method=method, post_type=args.post_type, param_names=param_names,
+        bool_probe=args.bool_probe,
     )
 
     if args.as_json:
@@ -438,6 +527,7 @@ def main() -> int:
             "baseline": asdict(baseline),
             "params_tested": len(param_names),
             "threshold_bytes": args.threshold,
+            "bool_probe": args.bool_probe,
             "findings": [asdict(f) for f in findings],
         }, indent=2, ensure_ascii=False))
     else:
