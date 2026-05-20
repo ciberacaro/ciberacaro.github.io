@@ -59,6 +59,11 @@ LABELS = {
             "Note: regex scans produce false positives. Review each finding before acting; "
             "high-entropy IDs and example values are commonly flagged."
         ),
+        "sev_critical": "CRITICAL",
+        "sev_high": "HIGH",
+        "sev_medium": "MEDIUM",
+        "sev_low": "LOW",
+        "sev_info": "INFO",
     },
     "pt": {
         "scanning": "A varrer",
@@ -77,6 +82,11 @@ LABELS = {
             "Nota: scans por regex produzem falsos positivos. Revê cada achado antes de "
             "agir; IDs com alta entropia e valores de exemplo são frequentemente marcados."
         ),
+        "sev_critical": "CRÍTICO",
+        "sev_high": "ALTO",
+        "sev_medium": "MÉDIO",
+        "sev_low": "BAIXO",
+        "sev_info": "INFO",
     },
 }
 
@@ -143,6 +153,44 @@ PATTERNS = (
      "Generic credential assignment (low confidence)"),
 )
 
+# Severity tier per pattern name. Used for output grouping and actionability.
+PATTERN_SEVERITY: dict[str, str] = {
+    "aws_access_key":      "critical",
+    "aws_secret_key":      "critical",
+    "private_key_block":   "critical",
+    "stripe_live_key":     "critical",
+    "github_pat_classic":  "high",
+    "github_pat_fine":     "high",
+    "github_oauth":        "high",
+    "github_app":          "high",
+    "slack_bot_token":     "high",
+    "slack_webhook":       "high",
+    "openai_key":          "high",
+    "openai_proj_key":     "high",
+    "anthropic_key":       "high",
+    "huggingface_token":   "high",
+    "sendgrid":            "high",
+    "postgres_url":        "high",
+    "mysql_url":           "high",
+    "mongo_url":           "high",
+    "twilio_sid":          "medium",
+    "twilio_auth":         "medium",
+    "stripe_test_key":     "medium",
+    "google_api_key":      "medium",
+    "google_oauth_id":     "medium",
+    "npm_token":           "medium",
+    "heroku_api":          "medium",
+    "bare_credential_assign": "medium",
+    "generic_secret_assign":  "low",
+    "jwt_token":           "low",
+    "env_file_name":       "info",
+}
+
+SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
+
+# Matches .env, .env.local, .env.production, .env.bak, etc.
+_ENV_FILE_RE = re.compile(r"^\.env(\.|$)", re.I)
+
 # Files / directories to skip entirely.
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
              "build", ".pytest_cache", ".mypy_cache", ".tox", "vendor",
@@ -177,6 +225,7 @@ class Finding:
     location: str           # file path or "<commit-sha>:<file>"
     line_number: Optional[int]
     preview: str            # masked preview of the match
+    severity: str = "medium"
 
 
 def is_binary_file(path: Path) -> bool:
@@ -223,8 +272,23 @@ def scan_text(text: str, location: str) -> list[Finding]:
                 location=location,
                 line_number=line_no,
                 preview=mask_preview(full),
+                severity=PATTERN_SEVERITY.get(name, "medium"),
             ))
     return out
+
+
+def _env_file_finding(path: Path, location: str) -> Optional[Finding]:
+    """Return a finding if the filename looks like a committed .env file."""
+    if _ENV_FILE_RE.match(path.name):
+        return Finding(
+            pattern_name="env_file_name",
+            description=".env file committed to repository (may contain secrets)",
+            location=location,
+            line_number=None,
+            preview=str(path.name),
+            severity="info",
+        )
+    return None
 
 
 def walk_path(root: Path):
@@ -265,7 +329,6 @@ def scan_filesystem(root: Path) -> tuple[list[Finding], dict]:
     stats: dict = {}
     for item, text in walk_path(root):
         if text is None:
-            # End-of-iteration sentinel with stats
             stats = item  # type: ignore[assignment]
             continue
         path = item  # type: ignore[assignment]
@@ -273,6 +336,9 @@ def scan_filesystem(root: Path) -> tuple[list[Finding], dict]:
             rel = path.relative_to(root)
         except ValueError:
             rel = path
+        env_f = _env_file_finding(path, str(rel))
+        if env_f:
+            findings.append(env_f)
         for f in scan_text(text, str(rel)):
             findings.append(f)
     return findings, stats
@@ -310,28 +376,57 @@ def scan_git_history(root: Path) -> tuple[list[Finding], dict]:
     return findings, {}
 
 
+_SEV_COLOR = {
+    "critical": "\033[91m",
+    "high":     "\033[31m",
+    "medium":   "\033[33m",
+    "low":      "\033[36m",
+    "info":     "\033[37m",
+}
+_RESET = "\033[0m"
+
+
+def _sev_label(sev: str, lang: str, tty: bool) -> str:
+    L = LABELS[lang]
+    key = f"sev_{sev}"
+    text = L.get(key, sev.upper())
+    if tty:
+        return f"{_SEV_COLOR.get(sev, '')}{text}{_RESET}"
+    return text
+
+
 def print_human(findings: list[Finding], stats: dict, mode_label: str, lang: str) -> None:
     L = LABELS[lang]
+    tty = sys.stdout.isatty()
     print(f"\n{L['scanning']}: {mode_label}\n")
-    print(f"\033[33m{L['warning_false_positives']}\033[0m\n" if sys.stdout.isatty() else f"{L['warning_false_positives']}\n")
+    warn = f"\033[33m{L['warning_false_positives']}{_RESET}" if tty else L["warning_false_positives"]
+    print(f"{warn}\n")
 
     if not findings:
         print(f"  {L['no_findings']}\n")
     else:
-        # Group by pattern_name for readability
-        by_pattern: dict[str, list[Finding]] = {}
+        # Group by severity first, then by pattern_name within each tier.
+        by_sev: dict[str, dict[str, list[Finding]]] = {s: {} for s in SEVERITY_ORDER}
         for f in findings:
-            by_pattern.setdefault(f.pattern_name, []).append(f)
+            sev = f.severity if f.severity in by_sev else "medium"
+            by_sev[sev].setdefault(f.pattern_name, []).append(f)
+
         print(f"{L['findings']} ({len(findings)}):\n")
-        for name, group in by_pattern.items():
-            desc = group[0].description
-            print(f"  [{name}]  {desc}  ({len(group)})")
-            for f in group[:15]:  # cap per-pattern display
-                loc = f"{f.location}:{f.line_number}" if f.line_number else f.location
-                print(f"    {loc}")
-                print(f"      {f.preview}")
-            if len(group) > 15:
-                print(f"    ... ({len(group) - 15} more)")
+        for sev in SEVERITY_ORDER:
+            patterns = by_sev[sev]
+            if not patterns:
+                continue
+            sev_count = sum(len(g) for g in patterns.values())
+            print(f"  [{_sev_label(sev, lang, tty)}]  ({sev_count})")
+            for name, group in patterns.items():
+                desc = group[0].description
+                print(f"    [{name}]  {desc}  ({len(group)})")
+                for f in group[:15]:
+                    loc = f"{f.location}:{f.line_number}" if f.line_number else f.location
+                    print(f"      {loc}")
+                    print(f"        {f.preview}")
+                if len(group) > 15:
+                    print(f"      ... ({len(group) - 15} more)")
             print()
 
     if stats:

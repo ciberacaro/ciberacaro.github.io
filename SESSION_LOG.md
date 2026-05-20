@@ -2,7 +2,7 @@
 
 A structured snapshot of the Claude Code build sessions that produced this repo. Intended as a complement to `CLAUDE.md` — that one explains the *current state*; this one explains *how we got there*. Useful when returning after weeks away, or when loading context into the claude.ai Project for mobile/web access.
 
-Last updated: 2026-05-19 (Session 4 continued — 25 improvements + Option A/B: 3 tools enhanced + xxe_probe added; total 33 tools).
+Last updated: 2026-05-20 (Session 5 — 3 tool improvements: path_scan --preset medium, secrets_scan severity grouping, check_headers CSP deep analysis; total 33 tools).
 
 ---
 
@@ -13,6 +13,18 @@ Last updated: 2026-05-19 (Session 4 continued — 25 improvements + Option A/B: 
 **Goal at the start:** Build a cybersecurity portfolio from scratch — Luís is transitioning into the field, targets pentesting/red team, has ~10-20 hours/week.
 
 **Final outcome:** Site live with bilingual About, 11 working CLI security tools, full local + remote tooling setup, project context portable across machines.
+
+### Session 5 — 2026-05-20
+
+**Goal at the start:** Implement 3 tool improvements identified in Session 4: (1) path_scan medium wordlist preset, (2) secrets_scan severity grouping, (3) check_headers CSP deep analysis.
+
+**What was done:**
+- `path_scan.py` — added `--preset {quick,medium}` flag. Quick = existing 75-path wordlist (default). Medium = 263 paths: all of quick plus CMS (Joomla, Drupal, Magento, WP extras), Laravel/Symfony/Rails/Django configs, Node/Python dependency files, API docs (Swagger/OpenAPI/GraphQL), Spring Boot heap/thread dumps, Java internals (WEB-INF/web.xml), CI/CD files (.gitlab-ci.yml, Jenkinsfile, .travis.yml), VCS metadata (.svn/, .hg/), credential stores (.aws/credentials, .bash_history), log files, auth/SSO paths, CTF staples (flag.txt, secret.txt). Extended RISK_PATTERNS with 9 new patterns for new path categories (admin_interface, java_dump, java_internals, api_docs, vcs_exposed, secret_file, devops_tool, log_file, dependency_file).
+- `secrets_scan.py` — added `severity` field to `Finding` dataclass; `PATTERN_SEVERITY` dict maps each pattern to critical/high/medium/low/info tier; `print_human` now groups by severity (critical first) with ANSI colour per tier; added `.env*` filename detection (`env_file_name` pattern, info tier) via `_env_file_finding()` called in `walk_path`.
+- `check_headers.py` — enhanced `check_csp()` with 3 new weak-CSP checks: `data:` URI in script/default-src (XSS via data URI), `http:` scheme in script/default-src (plaintext script load), missing `object-src` when `default-src` is also absent (plugin bypass). Added corresponding NOTES keys in both EN and PT.
+- Updated README.md, HOWTO.txt (path_scan + secrets_scan sections fully rewritten with new examples), SESSION_LOG, CLAUDE.md per the four-file rule.
+
+---
 
 ### Session 4 — 2026-05-19
 
@@ -109,7 +121,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | Tool | What it does |
 |------|--------------|
 | `new_writeup.py` | Generate writeup skeleton (Chirpy frontmatter + standard sections) |
-| `check_headers.py` | 9 security headers + info disclosure + redirect-chain detection |
+| `check_headers.py` | 9 security headers + info disclosure + redirect-chain; deep CSP analysis (data:, http:, missing object-src) |
 | `multidecode.py` | Auto-detect Base64/Base32/Base85/hex/URL/Unicode escapes/binary/ROT13 + `--cascade` |
 | `robots_check.py` | Parse `/robots.txt` + `/sitemap.xml`, highlight interesting paths |
 | `hashid.py` | Identify ~25 hash types with confidence + hashcat modes |
@@ -122,7 +134,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `http_methods.py` | Test allowed HTTP methods, flag TRACE/CONNECT/destructive 2xx |
 | `cookie_check.py` | `Set-Cookie` security-flag audit (HttpOnly/Secure/SameSite/Domain) |
 | `dns_records.py` | Raw-stdlib DNS (UDP+TCP) for A/AAAA/MX/NS/TXT/CAA + SPF/DMARC audit |
-| `secrets_scan.py` | Filesystem + git-history scan for committed credentials (entropy-gated) |
+| `secrets_scan.py` | Filesystem + git-history scan; severity grouping (critical→info); .env filename detection |
 | `recon.py` | Orchestrator: composes subfinder + check_headers + tls_inspect + cookie_check + dns_records → single Markdown report |
 | `whois_check.py` | WHOIS query (TCP/43) with parsed fields; flag expired / no DNSSEC |
 | `wayback_check.py` | Wayback Machine closest snapshot / timeline / live-vs-archived diff |
@@ -130,7 +142,7 @@ All bilingual (`--lang en|pt`), Python 3.8+ stdlib only, share `tools/_lib.py`, 
 | `password_strength.py` | Entropy + HIBP k-anonymity check (full password never leaves machine) |
 | `cve_lookup.py` | Fetch CVE details from NVD v2 API |
 | `xor_crack.py` | XOR ciphertext recovery (single + multi-byte via frequency analysis) |
-| `path_scan.py` | Wordlist-based HTTP path/directory discovery (gobuster-style, threaded, risk-flagged) |
+| `path_scan.py` | Gobuster-style path discovery; --preset quick (75) / medium (263 paths, CMS+CI/CD+CTF) |
 | `subdomain_takeover.py` | Dangling-CNAME subdomain takeover detection (16 service fingerprints, crt.sh enum) |
 | `log_parser.py` | Log normalisation + brute-force/scanner detection (Apache/syslog/generic, streamed) |
 | `email_forensics.py` | .eml header analysis: SPF/DKIM/DMARC, Received chain, brand impersonation |

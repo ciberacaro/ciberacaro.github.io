@@ -41,6 +41,8 @@ LABELS = {
         "wordlist_builtin": "builtin",
         "wordlist_paths": "paths",
         "wordlist_external": "external",
+        "wordlist_preset_quick": "quick preset",
+        "wordlist_preset_medium": "medium preset",
         "extensions": "extensions",
         "threads": "threads",
         "findings_header": "Findings",
@@ -60,6 +62,8 @@ LABELS = {
         "wordlist_builtin": "incorporada",
         "wordlist_paths": "caminhos",
         "wordlist_external": "externa",
+        "wordlist_preset_quick": "preset rápida",
+        "wordlist_preset_medium": "preset média",
         "extensions": "extensões",
         "threads": "threads",
         "findings_header": "Resultados",
@@ -154,6 +158,230 @@ BUILTIN_WORDLIST = [
     "site.key",
 ]
 
+# Additional paths for --preset medium. Appended to BUILTIN_WORDLIST at module load.
+MEDIUM_EXTRA = [
+    # CMS: Joomla
+    "administrator/index.php",
+    "components/",
+    "modules/",
+    "plugins/",
+    "templates/",
+    "cache/",
+    # CMS: Drupal
+    "sites/default/files/",
+    "sites/default/settings.php",
+    "sites/default/settings.local.php",
+    # CMS: Magento
+    "downloader/",
+    "app/etc/env.php",
+    "app/etc/local.xml",
+    "var/log/system.log",
+    "var/log/exception.log",
+    # WordPress extras
+    "wp-content/uploads/",
+    "wp-includes/",
+    "wp-json/",
+    "wp-cron.php",
+    "readme.html",
+    "license.txt",
+    "wp-content/debug.log",
+    "wp-signup.php",
+    # Laravel / Composer
+    "storage/logs/laravel.log",
+    ".env.example",
+    "artisan",
+    "composer.json",
+    "composer.lock",
+    # Symfony
+    "app/config/parameters.yml",
+    "app/config/parameters.yaml",
+    # Django
+    "__debug__/",
+    "manage.py",
+    # Ruby on Rails
+    "Gemfile",
+    "config.ru",
+    "log/production.log",
+    "log/development.log",
+    "config/database.yml",
+    "config/secrets.yml",
+    "config/credentials.yml.enc",
+    # API documentation exposure
+    "graphql",
+    "graphiql",
+    "api/graphql",
+    "swagger-ui.html",
+    "swagger-ui/",
+    "api-docs",
+    "api-docs/",
+    "openapi.json",
+    "openapi.yaml",
+    "openapi.yml",
+    "swagger.json",
+    "swagger.yaml",
+    "api/v3/",
+    "api/health",
+    "api/status",
+    "api/users",
+    "api/admin",
+    "api/login",
+    "api/register",
+    "rest/",
+    # Spring Boot extras (actuator/env, actuator/health, actuator/mappings already in quick)
+    "actuator/logfile",
+    "actuator/beans",
+    "actuator/configprops",
+    "actuator/httptrace",
+    "actuator/threaddump",
+    "actuator/heapdump",
+    "actuator/loggers",
+    "actuator/info",
+    "jolokia/",
+    "jolokia/list",
+    "heapdump",
+    "threaddump",
+    # Java webapp internals
+    "WEB-INF/web.xml",
+    "META-INF/MANIFEST.MF",
+    "index.jsp",
+    # Node / JavaScript
+    "package.json",
+    ".npmrc",
+    ".nvmrc",
+    "yarn.lock",
+    "package-lock.json",
+    "server.js",
+    "app.js",
+    # Python
+    "requirements.txt",
+    "setup.py",
+    "pyproject.toml",
+    "Pipfile",
+    "wsgi.py",
+    # More backup files
+    "db.sql",
+    "dump.sql",
+    "database.sql",
+    "site.zip",
+    "site.tar.gz",
+    "www.zip",
+    "www.tar.gz",
+    "web.zip",
+    "old/",
+    "archive/",
+    # SSH / key file variants
+    "id_ed25519",
+    "id_ecdsa",
+    ".ssh/id_rsa",
+    ".bash_history",
+    ".bashrc",
+    # More admin / management paths
+    "admin/config",
+    "admin/users",
+    "management/",
+    "control/",
+    "cp/",
+    "controlpanel/",
+    "webadmin/",
+    "backend/",
+    # CI/CD configuration files
+    "Jenkinsfile",
+    ".travis.yml",
+    ".circleci/config.yml",
+    ".gitlab-ci.yml",
+    ".github/",
+    "bitbucket-pipelines.yml",
+    "azure-pipelines.yml",
+    "Makefile",
+    # PHP extras
+    "install.php",
+    "upgrade.php",
+    "error_log",
+    "adminer.php",
+    "adminer/",
+    "phpMyAdmin/",
+    "login.php",
+    "register.php",
+    "upload.php",
+    "index.php",
+    # Health / monitoring endpoints
+    "health",
+    "status",
+    "ping",
+    "version",
+    "info",
+    "prometheus",
+    "metrics",
+    "grafana/",
+    "kibana/",
+    # Container / cloud artefacts
+    ".dockerenv",
+    "docker-compose.override.yml",
+    # Application config files
+    "application.properties",
+    "application.yml",
+    "application.yaml",
+    # Credential stores
+    ".aws/credentials",
+    ".aws/config",
+    "credentials",
+    "token",
+    ".password",
+    ".secret",
+    # Log files
+    "error.log",
+    "access.log",
+    "debug.log",
+    "app.log",
+    "server.log",
+    "nohup.out",
+    # Auth / SSO
+    "auth/",
+    "oauth/",
+    "oauth/token",
+    "oauth/authorize",
+    "saml/",
+    "sso/",
+    ".well-known/openid-configuration",
+    # VCS metadata exposure
+    ".svn/",
+    ".svn/entries",
+    ".hg/",
+    "CVS/",
+    # Certificate / key extras
+    "server.crt",
+    "ca.crt",
+    "ssl.key",
+    "ssl.crt",
+    "private.key",
+    "private.pem",
+    # Web metadata files
+    "sitemap.xml",
+    "crossdomain.xml",
+    "clientaccesspolicy.xml",
+    "manifest.json",
+    "service-worker.js",
+    # Windows / IIS extras
+    "web.config.bak",
+    "iisstart.htm",
+    "global.asa",
+    # Self-hosted services
+    "jenkins/",
+    "jenkins/login",
+    "gitlab/",
+    "nextcloud/",
+    "owncloud/",
+    "sonar/",
+    # CTF / challenge common paths
+    "flag.txt",
+    "secret.txt",
+    "key.txt",
+    "notes.txt",
+    "robots.txt",
+]
+
+MEDIUM_WORDLIST = BUILTIN_WORDLIST + MEDIUM_EXTRA
+
 RISK_PATTERNS = [
     (re.compile(r"\.env(\.|$)", re.I), "env_file", "high"),
     (re.compile(r"\.git", re.I), "git_exposed", "high"),
@@ -164,8 +392,17 @@ RISK_PATTERNS = [
     (re.compile(r"\.htpasswd$|/passwd$|/shadow$", re.I), "cred_file", "critical"),
     (re.compile(r"id_rsa|\.pem$|\.key$", re.I), "private_key", "critical"),
     (re.compile(r"phpinfo|info\.php$", re.I), "phpinfo", "medium"),
-    (re.compile(r"admin|administrator|dashboard|panel", re.I), "admin_panel", "medium"),
-    (re.compile(r"\.DS_Store$|Dockerfile|docker-compose", re.I), "devops_file", "medium"),
+    (re.compile(r"admin|administrator|dashboard|panel|controlpanel|webadmin|backend", re.I), "admin_panel", "medium"),
+    (re.compile(r"\.DS_Store$|Dockerfile|docker-compose|\.dockerenv", re.I), "devops_file", "medium"),
+    (re.compile(r"adminer|jolokia", re.I), "admin_interface", "high"),
+    (re.compile(r"heapdump|threaddump", re.I), "java_dump", "high"),
+    (re.compile(r"WEB-INF|META-INF", re.I), "java_internals", "high"),
+    (re.compile(r"swagger|graphql|graphiql|openapi|api-docs", re.I), "api_docs", "medium"),
+    (re.compile(r"\.svn|\.hg(/|$)|/CVS(/|$)", re.I), "vcs_exposed", "high"),
+    (re.compile(r"\.aws/|/credentials$|\.password$|\.secret$|\.bash_history$|/\.ssh/", re.I), "secret_file", "critical"),
+    (re.compile(r"jenkins(/|$)|sonar(/|$)|grafana(/|$)|kibana(/|$)|prometheus(/|$)", re.I), "devops_tool", "medium"),
+    (re.compile(r"\.log$|/access\.log|/error\.log|/laravel\.log|nohup\.out$", re.I), "log_file", "medium"),
+    (re.compile(r"composer\.(json|lock)$|package\.json$|yarn\.lock$|Pipfile$|requirements\.txt$|pyproject\.toml$", re.I), "dependency_file", "medium"),
 ]
 
 DEFAULT_CODES = {200, 201, 204, 301, 302, 307, 308, 401, 403, 405}
@@ -293,6 +530,14 @@ def main() -> None:
     )
     parser.add_argument("url", help="Target base URL (or '-' to read from stdin)")
     parser.add_argument("--wordlist", metavar="FILE", help="External wordlist (one path per line, # = comment)")
+    parser.add_argument(
+        "--preset",
+        choices=("quick", "medium"),
+        default="quick",
+        metavar="PRESET",
+        help="Built-in wordlist preset: quick (~75 paths) or medium (~270 paths). "
+             "Ignored when --wordlist is given. Default: quick.",
+    )
     parser.add_argument("--extensions", metavar="LIST", default="", help="Comma-separated extensions to append to each path (e.g. php,html,bak)")
     parser.add_argument("--threads", type=int, default=10, metavar="N", help="Concurrent threads (default: 10)")
     parser.add_argument("--timeout", type=int, default=5, metavar="SECS", help="Per-request timeout in seconds (default: 5)")
@@ -323,7 +568,6 @@ def main() -> None:
 
     extensions = [e.strip() for e in args.extensions.split(",") if e.strip()] if args.extensions else []
 
-    wordlist_label = L["wordlist_builtin"]
     if args.wordlist:
         try:
             base_paths = load_wordlist(args.wordlist)
@@ -331,8 +575,12 @@ def main() -> None:
             print(f"{L['err_wordlist']}: {e}", file=sys.stderr)
             sys.exit(2)
         wordlist_label = L["wordlist_external"]
+    elif args.preset == "medium":
+        base_paths = list(MEDIUM_WORDLIST)
+        wordlist_label = L["wordlist_preset_medium"]
     else:
         base_paths = list(BUILTIN_WORDLIST)
+        wordlist_label = L["wordlist_preset_quick"]
 
     all_paths = build_path_list(base_paths, extensions)
     ssl_ctx = build_ssl_context()

@@ -73,7 +73,7 @@ Inspect the security-relevant HTTP response headers of any URL and produce a qui
 | Header | Why it matters |
 |--------|----------------|
 | `Strict-Transport-Security` | Forces HTTPS; defends against downgrade attacks |
-| `Content-Security-Policy` | Reduces XSS impact; warns on `'unsafe-inline'` / `'unsafe-eval'` / `*` |
+| `Content-Security-Policy` | Reduces XSS impact; warns on `'unsafe-inline'` / `'unsafe-eval'` / `*` / `data:` in script-src / `http:` scheme / missing `object-src` |
 | `X-Frame-Options` *(or CSP `frame-ancestors`)* | Clickjacking defense |
 | `X-Content-Type-Options` | Disables MIME-sniffing (`nosniff`) |
 | `Referrer-Policy` | Limits referrer info leakage |
@@ -186,15 +186,19 @@ tools/subfinder.py example.com --threads 20 --jitter 0.3          # tune for you
 
 ## `path_scan.py`
 
-Discover hidden paths and directories on a web server. Stdlib equivalent of gobuster/dirb-style scanners — concurrent HTTP probes (default 10 threads) over a built-in 75-path wordlist (admin panels, backups, `.env`, `.git/config`, `wp-config.php`, `phpmyadmin`, Spring Actuator endpoints, etc.). Flags dangerous findings (env files, exposed `.git`, backups, admin panels, private-key files) with a risk level.
+Discover hidden paths and directories on a web server. Stdlib equivalent of gobuster/dirb-style scanners — concurrent HTTP probes (default 10 threads) with two built-in wordlist presets:
 
-Supports external wordlists (`--wordlist`), extension expansion (`--extensions php,html,bak`), custom status-code filtering (`--codes`), and tunable concurrency. A 403 on a sensitive path still reports — the directory exists even if not directly readable.
+- **`--preset quick`** (default, 75 paths): `.env`, `.git`, admin panels, backups, `wp-config.php`, `phpmyadmin`, Spring Actuator endpoints, etc.
+- **`--preset medium`** (~263 paths): all of the above plus CMS paths (Joomla, Drupal, Magento, WP extras), Laravel/Symfony/Rails/Django config files, Node/Python dependency files, API docs (Swagger/OpenAPI/GraphQL), Spring Boot dumps (`heapdump`, `threaddump`), Java internals (`WEB-INF/web.xml`), CI/CD files (`.gitlab-ci.yml`, `Jenkinsfile`), VCS metadata (`.svn/`, `.hg/`), credential stores (`.aws/credentials`, `.bash_history`), log files, auth/SSO paths, and CTF staples (`flag.txt`, `secret.txt`).
 
-**Wildcard/soft-404 detection**: before scanning, the tool probes a random 18-char path. If the server returns 200, it's a wildcard responder — the tool warns you and automatically filters out results whose body size is within 10% of the baseline, suppressing most false positives.
+Flags dangerous findings with risk levels. Supports external wordlists (`--wordlist`), extension expansion (`--extensions php,bak`), custom status-code filtering (`--codes`), and tunable concurrency. A 403 on a sensitive path still reports.
+
+**Wildcard/soft-404 detection**: probes a random 18-char path first. If the server returns 200, warns and filters results within 10% of baseline body size.
 
 ```bash
 tools/path_scan.py https://example.com
-tools/path_scan.py https://example.com --extensions php,bak --threads 20
+tools/path_scan.py https://example.com --preset medium
+tools/path_scan.py https://example.com --preset medium --extensions php,bak --threads 20
 tools/path_scan.py https://example.com --wordlist /usr/share/wordlists/dirb/common.txt --lang pt
 tools/path_scan.py https://example.com --codes 200,301,302 --json
 ```
@@ -339,7 +343,9 @@ tools/dns_records.py example.com --no-axfr           # skip zone-transfer probe
 
 Scan filesystem or git history for committed credentials. Patterns for AWS keys, Stripe/Slack/GitHub/Twilio/SendGrid/OpenAI/Anthropic/HuggingFace tokens, Google API keys, JWT-like strings, private-key PEM blocks, DB connection URLs with passwords, and generic `api_key='...'` / bare `ACCESS_KEY=value` assignments. All matches masked in the output.
 
-Generic and bare credential assignments are entropy-gated (Shannon entropy ≥ 3.5 bits/char on the captured value) to suppress false positives on documentation placeholders and low-randomness strings (`"exampletoken"`, `"changeme1234"`, repeated chars).
+**Severity grouping** (Critical → High → Medium → Low → Info): CRITICAL for live AWS/Stripe keys and private-key PEM blocks; HIGH for GitHub PATs, OpenAI/Anthropic/HuggingFace tokens, DB connection strings; MEDIUM for test keys, Google/npm/Heroku tokens; LOW for JWTs; INFO for committed `.env` files detected by filename.
+
+Generic and bare credential assignments are entropy-gated (Shannon entropy ≥ 3.5 bits/char on the captured value) to suppress false positives on documentation placeholders (`"exampletoken"`, `"changeme1234"`).
 
 ```bash
 tools/secrets_scan.py --path .                     # current directory

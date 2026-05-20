@@ -119,6 +119,9 @@ NOTES = {
         "server_info_no_version": "Reveals server software (no version)",
         "info_disclosure": "Reveals stack/version — consider removing",
         "wildcard_source": "wildcard '*' source",
+        "csp_data_uri_script": "'data:' in script/default-src (XSS via data URI)",
+        "csp_http_scheme": "'http:' in script/default-src (plaintext load)",
+        "csp_no_object_src": "no object-src (plugin bypass possible)",
         "coop_missing": "No COOP; cross-origin windows share browsing context (Spectre / cross-window attacks)",
         "coop_ok": "Browsing context isolated from cross-origin windows",
         "coop_weak": "COOP set but with permissive value",
@@ -158,6 +161,9 @@ NOTES = {
         "server_info_no_version": "Revela software do servidor (sem versão)",
         "info_disclosure": "Revela stack/versão — considera remover",
         "wildcard_source": "origem com wildcard '*'",
+        "csp_data_uri_script": "'data:' em script/default-src (XSS via data URI)",
+        "csp_http_scheme": "'http:' em script/default-src (carga em texto claro)",
+        "csp_no_object_src": "object-src em falta (bypass via plugin possível)",
         "coop_missing": "Sem COOP; janelas cross-origin partilham contexto de browsing (Spectre / ataques cross-window)",
         "coop_ok": "Contexto de browsing isolado de janelas cross-origin",
         "coop_weak": "COOP definido mas com valor permissivo",
@@ -453,12 +459,22 @@ def check_csp(headers: dict, lang: str) -> Finding:
     if not raw:
         return Finding(display, MISSING, None, N["csp_missing"])
     weak = []
-    if "'unsafe-inline'" in raw:
+    raw_lower = raw.lower()
+    if "'unsafe-inline'" in raw_lower:
         weak.append("'unsafe-inline'")
-    if "'unsafe-eval'" in raw:
+    if "'unsafe-eval'" in raw_lower:
         weak.append("'unsafe-eval'")
     if "*" in raw.split():
         weak.append(N["wildcard_source"])
+    # data: URI in script-src / default-src allows inline script via data: URLs
+    if re.search(r"(?:script-src|default-src)\s[^;]*\bdata:", raw_lower):
+        weak.append(N["csp_data_uri_script"])
+    # http: scheme in script-src / default-src loads scripts over plaintext
+    if re.search(r"(?:script-src|default-src)\s[^;]*\bhttp:", raw_lower):
+        weak.append(N["csp_http_scheme"])
+    # No object-src and no default-src → plugin elements (object/embed) unrestricted
+    if "object-src" not in raw_lower and "default-src" not in raw_lower:
+        weak.append(N["csp_no_object_src"])
     if weak:
         return Finding(display, WEAK, raw, N["csp_weak_directives"].format(", ".join(weak)))
     if report_only and not enforced:

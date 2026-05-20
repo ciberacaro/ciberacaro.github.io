@@ -138,6 +138,10 @@ TABLE OF CONTENTS · ÍNDICE
     is reported with a concrete attack/risk and a one-line fix. Detects
     redirect chains and warns when the headers describe the destination
     rather than the origin you asked about.
+    CSP analysis goes beyond a simple presence check: flags 'unsafe-inline',
+    'unsafe-eval', bare wildcard *, data: in script/default-src (XSS via
+    data URI), http: scheme in script/default-src (plaintext script load),
+    and missing object-src when default-src is also absent (plugin bypass).
 
 [EN] QUICK START
     $ tools/check_headers.py https://example.com
@@ -196,6 +200,10 @@ TABLE OF CONTENTS · ÍNDICE
     ou fraco é reportado com o ataque/risco concreto e uma correção em
     uma linha. Deteta cadeias de redirect e avisa quando os headers
     descrevem o destino e não o URL original.
+    Análise CSP vai além da mera presença: deteta 'unsafe-inline',
+    'unsafe-eval', wildcard *, data: em script/default-src (XSS via data
+    URI), esquema http: em script/default-src (carga em texto claro) e
+    ausência de object-src sem default-src (bypass via plugin).
 
 [PT] ARRANQUE RÁPIDO
     $ tools/check_headers.py https://example.com
@@ -906,38 +914,51 @@ TABLE OF CONTENTS · ÍNDICE
     Discover hidden paths and directories on a web server by trying a
     wordlist of common names (admin panels, backup files, config files,
     .git/, .env, etc.). A simplified Python-stdlib equivalent of
-    gobuster/dirb. Concurrent HTTP probes with a 75-path built-in
-    wordlist plus optional external wordlist and extension expansion.
-    Flags dangerous findings with a risk level. Wildcard/soft-404
-    detection: probes a random path first; if the server returns 200,
-    warns you and filters results within 10% of the baseline body size,
-    eliminating most false positives from catch-all servers.
+    gobuster/dirb. Concurrent HTTP probes with two built-in presets:
+    quick (75 paths, biased for high-value finds) and medium (~263
+    paths, adds CMS routes, framework configs, API docs, CI/CD files,
+    VCS metadata, credential stores, and CTF staples like flag.txt).
+    Flags dangerous findings with a risk level (CRITICAL / HIGH / MEDIUM).
+    Wildcard/soft-404 detection: probes a random path first; if the
+    server returns 200, warns you and filters results within 10% of the
+    baseline body size, eliminating most false positives.
 
 [EN] QUICK START
     $ tools/path_scan.py https://example.com
 
 [EN] EXAMPLES
-    # Scenario 1 — baseline path discovery with the built-in wordlist
+    # Scenario 1 — quick scan (default 75 paths)
     $ tools/path_scan.py https://example.com
     Expected output (truncated):
         Target: https://example.com
-        Wordlist: builtin (75 paths) | 0 extensions | 10 threads
+        Wordlist: quick preset (75 paths) | 10 threads
 
         Findings (3):
           200  /admin/         [MEDIUM] admin_panel
           200  /.env           [HIGH]   env_file
           403  /.git/config    [HIGH]   git_exposed
 
-    # Scenario 2 — append extensions, custom threads
-    $ tools/path_scan.py https://example.com --extensions php,bak --threads 20
+    # Scenario 2 — medium preset for broader CTF/recon coverage
+    $ tools/path_scan.py https://10.10.10.123 --preset medium
+    Expected output (truncated):
+        Target: https://10.10.10.123
+        Wordlist: medium preset (263 paths) | 10 threads
 
-    # Scenario 3 — external wordlist + JSON for piping
+        Findings (5):
+          200  /composer.json           [MEDIUM] dependency_file
+          200  /WEB-INF/web.xml         [HIGH]   java_internals
+          403  /.aws/credentials        [CRITICAL] secret_file
+          ...
+
+    # Scenario 3 — medium preset + PHP extensions + JSON
     $ tools/path_scan.py https://example.com \
-        --wordlist /usr/share/wordlists/dirb/common.txt --json | \
-        jq '.findings[] | select(.risk_level == "high")'
+        --preset medium --extensions php,bak --json | \
+        jq '.findings[] | select(.risk_level == "critical")'
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version, --user-agent):
+    --preset PRESET       Built-in wordlist: quick (~75) or medium (~263).
+                          Default: quick. Ignored when --wordlist is given.
     --wordlist FILE       External wordlist (one path per line, # = comment).
     --extensions LIST     Comma-separated extensions appended to each path
                           (e.g. `php,html,bak`). Path also tried without ext.
@@ -953,55 +974,65 @@ TABLE OF CONTENTS · ÍNDICE
     3  Network error
 
 [EN] TIPS
-    - Built-in wordlist is small (75 paths) — biased for high-value finds.
-      For real recon, pair with SecLists `directory-list-2.3-small.txt`.
+    - Start with `--preset medium` on CTF boxes — it costs ~2x the time
+      of quick but catches Spring heapdump, WEB-INF/web.xml, composer.json,
+      .gitlab-ci.yml, .aws/credentials, and flag.txt that quick misses.
     - 403 on `.git/config` still counts as exposed — the directory exists.
-    - Pair with tech_fingerprint to bias the wordlist: PHP site? add
-      `--extensions php,phps,bak`. Java site? try `actuator/*` paths.
-    - The 200,301,302,401,403 list is a recon trade-off — drop 401/403
-      with `--codes 200,301,302` if you only want directly-readable hits.
-    - Wildcard mode: if the warning fires, check the remaining 200 results
-      manually — they differ in body size from the baseline so they are
-      *candidates*, not confirmed findings. Always verify in the browser.
+    - Pair with tech_fingerprint: PHP site? add `--extensions php,phps,bak`.
+      Java site? the `actuator/*` paths are already in both presets.
+    - For exhaustive coverage, combine medium preset with SecLists:
+      `--wordlist /usr/share/wordlists/dirb/common.txt`
+    - Wildcard mode: if the warning fires, the remaining 200 results are
+      *candidates* — they differ in body size. Always verify in a browser.
 
 [PT] PROPÓSITO
     Descobre caminhos e diretórios escondidos num servidor web testando
     uma wordlist de nomes comuns (paineis de admin, backups, ficheiros
     de config, .git/, .env, etc.). Equivalente simplificado em stdlib do
-    gobuster/dirb. Probes HTTP concorrentes com uma wordlist interna de
-    75 caminhos, mais wordlist externa opcional e expansão por extensão.
-    Sinaliza findings perigosos com um nível de risco. Deteção de
-    wildcard/soft-404: testa um caminho aleatório primeiro; se o
-    servidor devolver 200, avisa e filtra resultados com tamanho de body
-    dentro de 10% da linha de base, eliminando a maioria dos falsos
-    positivos em servidores catch-all.
+    gobuster/dirb. Probes HTTP concorrentes com dois presets internos:
+    quick (75 caminhos, enviesado para achados de alto valor) e medium
+    (~263 caminhos, acrescenta rotas CMS, configs de frameworks, docs de
+    API, ficheiros CI/CD, metadados VCS, stores de credenciais e clássicos
+    de CTF como flag.txt). Sinaliza findings perigosos com nível de risco
+    (CRÍTICO / ALTO / MÉDIO). Deteção de wildcard/soft-404 automática.
 
 [PT] ARRANQUE RÁPIDO
     $ tools/path_scan.py https://example.com
 
 [PT] EXEMPLOS
-    # Cenário 1 — descoberta base com a wordlist interna
+    # Cenário 1 — scan rápido (75 caminhos por omissão)
     $ tools/path_scan.py https://example.com --lang pt
     Output esperado (truncado):
         Alvo: https://example.com
-        Wordlist: integrada (75 caminhos) | 0 extensões | 10 threads
+        Wordlist: preset rápida (75 caminhos) | 10 threads
 
         Resultados (3):
           200  /admin/         [MÉDIO]  admin_panel
           200  /.env           [ALTO]   env_file
           403  /.git/config    [ALTO]   git_exposed
 
-    # Cenário 2 — extensões adicionais e mais threads
-    $ tools/path_scan.py https://example.com --extensions php,bak \
-        --threads 20 --lang pt
+    # Cenário 2 — preset medium para cobertura CTF/recon mais ampla
+    $ tools/path_scan.py https://10.10.10.123 --preset medium --lang pt
+    Output esperado (truncado):
+        Alvo: https://10.10.10.123
+        Wordlist: preset média (263 caminhos) | 10 threads
 
-    # Cenário 3 — wordlist externa + JSON para pipeline
+        Resultados (5):
+          200  /composer.json           [MÉDIO]  dependency_file
+          200  /WEB-INF/web.xml         [ALTO]   java_internals
+          403  /.aws/credentials        [CRÍTICO] secret_file
+          ...
+
+    # Cenário 3 — preset medium + extensões PHP + JSON
     $ tools/path_scan.py https://example.com \
-        --wordlist /usr/share/wordlists/dirb/common.txt --json | \
-        jq '.findings[] | select(.risk_level == "high")'
+        --preset medium --extensions php,bak --json | \
+        jq '.findings[] | select(.risk_level == "critical")'
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version, --user-agent):
+    --preset PRESET       Wordlist interna: quick (~75) ou medium (~263).
+                          Por omissão: quick. Ignorado se --wordlist for
+                          fornecido.
     --wordlist FICHEIRO   Wordlist externa (um caminho por linha, # = comentário).
     --extensions LISTA    Extensões separadas por vírgula adicionadas a
                           cada caminho (ex: `php,html,bak`). O caminho
@@ -1018,14 +1049,14 @@ TABLE OF CONTENTS · ÍNDICE
     3  Erro de rede
 
 [PT] DICAS
-    - Wordlist interna é pequena (75 caminhos) — enviesada para findings
-      de alto valor. Para recon a sério, combina com a SecLists
-      `directory-list-2.3-small.txt`.
+    - Começa com `--preset medium` em máquinas CTF — custa ~2x o tempo do
+      quick mas apanha Spring heapdump, WEB-INF/web.xml, composer.json,
+      .gitlab-ci.yml, .aws/credentials e flag.txt que o quick não testa.
     - 403 em `.git/config` continua a contar como exposto — o diretório
       existe.
-    - Combina com tech_fingerprint para enviesar a wordlist: site em PHP?
-      `--extensions php,phps,bak`. Site em Java? testa `actuator/*`.
-    - A lista 200,301,302,401,403 é um trade-off de recon — baixa para
+    - Combina com tech_fingerprint: site em PHP? `--extensions php,phps,bak`.
+      Site em Java? os caminhos `actuator/*` já estão em ambos os presets.
+    - A lista 200,301,302,401,403 é um trade-off — baixa para
       `--codes 200,301,302` se só quiseres acertos diretamente legíveis.
 
 --------------------------------------------------------------------------------
@@ -2810,9 +2841,12 @@ TABLE OF CONTENTS · ÍNDICE
     AWS access keys, Stripe / Slack / GitHub / Google / Twilio /
     SendGrid / OpenAI / Anthropic / HuggingFace tokens, private keys
     (RSA/EC/PEM), JWT strings, .env-style assignments, bare KEY=value
-    assignments, and database URLs. Generic and bare credential
-    assignments are entropy-gated (Shannon ≥ 3.5 bits/char) to cut
-    false positives from placeholders and low-randomness strings.
+    assignments, and database URLs. Also detects committed .env files
+    by filename (INFO tier). Generic and bare credential assignments are
+    entropy-gated (Shannon >= 3.5 bits/char) to cut false positives.
+    Findings grouped by severity: CRITICAL first (live AWS/Stripe keys,
+    private-key blocks), HIGH (GitHub PATs, AI tokens, DB URLs),
+    MEDIUM (test keys, npm/Heroku), LOW (JWTs), INFO (.env filenames).
 
 [EN] QUICK START
     $ tools/secrets_scan.py                  # current directory
@@ -2824,23 +2858,34 @@ TABLE OF CONTENTS · ÍNDICE
     $ cd ~/Projects/my-project
     $ tools/secrets_scan.py
     Expected output (truncated):
-        Scanning: .
-        Findings (3):
-          src/config.py:18
-            pattern: aws_access_key_id
-            match:   AKIAIOSFODNN7EXAMPLE
-          tests/fixtures.json:42
-            pattern: stripe_secret_key
-            match:   sk_live_4eC39HqLyjWDarjtT...
-          .env.local:5
-            pattern: generic_secret (entropy 4.8 bits/char)
-            match:   API_TOKEN="aB3xJ9..."
+        Scanning: filesystem mode (...)
 
-    # Scenario 2 — scan a different repo
+        Findings (4):
+
+          [CRITICAL]  (1)
+            [private_key_block]  Private key PEM block  (1)
+              deploy/id_rsa:1
+                -----BEGIN RSA ***
+
+          [HIGH]  (2)
+            [aws_access_key]  AWS access key ID  (2)
+              config.py:18  AKIAI***AMPLE
+              tests/fixtures.json:42  AKIAI***NGLE
+
+          [INFO]  (1)
+            [env_file_name]  .env file committed ...  (1)
+              .env.local
+
+    # Scenario 2 — scan a cloned target
     $ tools/secrets_scan.py --path /tmp/cloned-target
 
-    # Scenario 3 — historical scan (commits + diffs)
-    $ tools/secrets_scan.py --git-history --lang pt --json
+    # Scenario 3 — historical scan + JSON for automated pipelines
+    $ tools/secrets_scan.py --git-history --json | \
+        python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+crits=[f for f in d['findings'] if f['severity']=='critical']
+print(len(crits),'critical findings')"
 
 [EN] FLAGS
     Beyond the universals (--lang, --json, --version):
@@ -2855,27 +2900,29 @@ TABLE OF CONTENTS · ÍNDICE
 
 [EN] TIPS
     - --git-history scans everything, including files now deleted —
-      that's the whole point. A leaked secret committed once is leaked
-      forever until you rotate it.
-    - Rotate the secret first, redact later. `git filter-repo` or
-      `git filter-branch` can rewrite history, but you also have to
-      force-push and coordinate with collaborators.
+      a leaked secret committed once is leaked forever until rotated.
+    - Rotate the secret first, redact later. `git filter-repo` can
+      rewrite history, but you must force-push and coordinate with
+      collaborators.
     - The entropy gate trims noise but allows occasional false positives
-      for high-entropy non-secret strings (UUIDs, large hashes). Review
-      manually before action.
+      for high-entropy non-secret strings (UUIDs, large hashes). Always
+      review manually before taking action.
+    - CRITICAL findings need immediate attention: rotate the key, then
+      scrub history. HIGH and MEDIUM are "fix before merging to main".
 
 [PT] PROPÓSITO
     Faz scan a uma árvore do sistema de ficheiros ou ao histórico do git
     à procura de credenciais comprometidas. O modo filesystem percorre o
-    path (saltando binários e ruído comum: node_modules, .venv,
-    __pycache__, etc.). O modo git corre `git log -p` e inspeciona cada
-    hunk de diff ao longo do histórico. Padrões embutidos cobrem chaves
-    AWS, tokens Stripe / Slack / GitHub / Google / Twilio / SendGrid /
-    OpenAI / Anthropic / HuggingFace, chaves privadas (RSA/EC/PEM),
-    strings JWT, atribuições estilo .env, atribuições bare KEY=value, e
-    URLs de bases de dados. Atribuições genéricas e bare passam por um
-    filtro de entropia de Shannon (≥ 3.5 bits/char) para cortar falsos
-    positivos de placeholders e strings de baixa aleatoriedade.
+    path (saltando binários e ruído comum). O modo git corre `git log -p`
+    e inspeciona cada hunk de diff ao longo do histórico. Padrões embutidos
+    cobrem chaves AWS, tokens Stripe / Slack / GitHub / Google / Twilio /
+    SendGrid / OpenAI / Anthropic / HuggingFace, chaves privadas (RSA/EC/PEM),
+    strings JWT, atribuições estilo .env, atribuições bare KEY=value e URLs
+    de bases de dados. Também deteta ficheiros .env commitados por nome
+    (nível INFO). Findings agrupados por severidade: CRÍTICO primeiro
+    (chaves AWS/Stripe ao vivo, blocos PEM), ALTO (PATs GitHub, tokens IA,
+    URLs de BD), MÉDIO (chaves de teste, npm/Heroku), BAIXO (JWTs), INFO
+    (nomes de ficheiros .env).
 
 [PT] ARRANQUE RÁPIDO
     $ tools/secrets_scan.py                   # diretório atual
@@ -2885,25 +2932,36 @@ TABLE OF CONTENTS · ÍNDICE
 [PT] EXEMPLOS
     # Cenário 1 — auditoria rápida antes de publicar um repo
     $ cd ~/Projects/o-meu-projeto
-    $ tools/secrets_scan.py
+    $ tools/secrets_scan.py --lang pt
     Output esperado (truncado):
-        A analisar: .
-        Findings (3):
-          src/config.py:18
-            padrão: aws_access_key_id
-            match:  AKIAIOSFODNN7EXAMPLE
-          tests/fixtures.json:42
-            padrão: stripe_secret_key
-            match:  sk_live_4eC39HqLyjWDarjtT...
-          .env.local:5
-            padrão: generic_secret (entropia 4.8 bits/char)
-            match:  API_TOKEN="aB3xJ9..."
+        A varrer: modo filesystem (...)
 
-    # Cenário 2 — analisar outro repo
-    $ tools/secrets_scan.py --path /tmp/cloned-target
+        Achados (4):
 
-    # Cenário 3 — scan histórico (commits + diffs)
-    $ tools/secrets_scan.py --git-history --lang pt --json
+          [CRÍTICO]  (1)
+            [private_key_block]  Bloco PEM de chave privada  (1)
+              deploy/id_rsa:1
+                -----BEGIN RSA ***
+
+          [ALTO]  (2)
+            [aws_access_key]  ID de chave de acesso AWS  (2)
+              config.py:18  AKIAI***AMPLE
+              tests/fixtures.json:42  AKIAI***NGLE
+
+          [INFO]  (1)
+            [env_file_name]  Ficheiro .env commitado ...  (1)
+              .env.local
+
+    # Cenário 2 — analisar repo clonado
+    $ tools/secrets_scan.py --path /tmp/cloned-target --lang pt
+
+    # Cenário 3 — scan histórico + JSON para pipelines
+    $ tools/secrets_scan.py --git-history --json | \
+        python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+crits=[f for f in d['findings'] if f['severity']=='critical']
+print(len(crits),'findings críticos')"
 
 [PT] FLAGS
     Para além das universais (--lang, --json, --version):
@@ -2917,15 +2975,14 @@ TABLE OF CONTENTS · ÍNDICE
     2  Path inválido, ou --git-history fora de um repo git
 
 [PT] DICAS
-    - --git-history analisa tudo, incluindo ficheiros agora apagados —
-      é exatamente o objetivo. Um segredo commitado uma vez está
-      comprometido para sempre até ser rodado.
-    - Roda o segredo primeiro, redação depois. `git filter-repo` ou
-      `git filter-branch` permitem reescrever o histórico, mas tens de
-      fazer force-push e coordenar com colaboradores.
-    - O filtro de entropia corta ruído mas deixa passar falsos positivos
-      ocasionais para strings de alta entropia que não são segredos
-      (UUIDs, hashes grandes). Revê manualmente antes de agir.
+    - --git-history analisa tudo, incluindo ficheiros apagados — um
+      segredo commitado uma vez está comprometido até ser rodado.
+    - Roda o segredo primeiro, redação depois. `git filter-repo` pode
+      reescrever o histórico, mas é preciso force-push e coordenar.
+    - O filtro de entropia corta ruído mas deixa falsos positivos
+      ocasionais (UUIDs, hashes grandes). Revê manualmente antes de agir.
+    - Findings CRÍTICOS precisam de ação imediata: roda a chave, depois
+      purga o histórico. ALTO e MÉDIO são "corrigir antes do merge".
 
 --------------------------------------------------------------------------------
 5.3 cve_lookup.py
